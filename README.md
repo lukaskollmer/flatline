@@ -21,8 +21,9 @@ switching over needs no changes (see [Migrating from Periphery](#migrating-from-
 ## Installation
 
 flatline needs a Swift 6 toolchain: Xcode 16 or later on macOS, or a
-[Swift toolchain](https://www.swift.org/install/linux/) on Linux. It's tested
-with Swift 6.4 (Xcode 27) on macOS and the `swift:6.4` image on Linux.
+[Swift toolchain](https://www.swift.org/install/linux/) on Linux. CI tests it
+with the latest stable Swift: the newest stable Xcode on macOS, and the
+`swift:latest` image on Linux.
 
 Build it from a checkout of this repository. On macOS, go through `xcrun` so
 the selected Xcode's toolchain builds it, not whichever `swift` comes first on

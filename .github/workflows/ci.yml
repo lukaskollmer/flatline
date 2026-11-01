@@ -7,9 +7,24 @@ on:
 
 jobs:
   macos:
-    runs-on: macos-latest
+    # The newest image with a stable Xcode; macos-latest still ships Xcode 26 (Swift 6.3).
+    runs-on: xcode-27
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Select the latest stable Xcode
+        run: |
+          # Resolve version symlinks (Xcode_27.2.app may point at a release
+          # candidate) before skipping betas and release candidates.
+          xcode=$(
+            for app in /Applications/Xcode_*.app; do
+              app=$(realpath "$app")
+              case "$app" in *[Bb]eta*|*Release_Candidate*) continue ;; esac
+              echo "$(defaults read "$app/Contents/Info" CFBundleShortVersionString) $app"
+            done | sort -V | tail -n 1 | cut -d ' ' -f 2-
+          )
+          sudo xcode-select --switch "$xcode"
+          xcrun swift --version
       - name: Test
         run: swift test
       - name: Find unused code in flatline
@@ -17,7 +32,8 @@ jobs:
 
   linux:
     runs-on: ubuntu-latest
-    container: swift:6.4
+    container: swift:latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Test
