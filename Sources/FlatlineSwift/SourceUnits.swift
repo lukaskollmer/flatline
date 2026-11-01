@@ -17,11 +17,13 @@ public struct SourceUnit: Sendable {
     let recordName: String
 }
 
-/// Chooses the units of an index store that belong to the project.
+/// Chooses the units of index stores that belong to the project.
 ///
 /// An index store accumulates units across builds, so it can hold several
-/// units for one file (from other configurations or earlier builds). For each
-/// file and module, the most recently written unit wins.
+/// units for one file (from other configurations or earlier builds). Within
+/// one build variant, the most recently written unit of each file and module
+/// wins. The units of different variants are all kept, so that code compiled
+/// only in some variants is analyzed too.
 public struct UnitSelector: Sendable {
     public var projectRoot: String
     public var excludedModules: Set<String> = []
@@ -36,12 +38,15 @@ public struct UnitSelector: Sendable {
         self.projectRoot = projectRoot
     }
 
-    public func select(from stores: [IndexStore], logger: Logger) throws -> [SourceUnit] {
+    /// `variants` holds the index stores of each build variant;
+    /// `SourceUnit.storeIndex` indexes into them flattened.
+    public func select(from variants: [[IndexStore]], logger: Logger) throws -> [SourceUnit] {
         let root = Paths.canonical(projectRoot)
         var candidates: [String: (unit: IndexUnit, store: Int, file: String)] = [:]
         var canonicalPaths: [String: String?] = [:]
 
-        for (storeIndex, store) in stores.enumerated() {
+        let stores = variants.enumerated().flatMap { variant, stores in stores.map { (variant, $0) } }
+        for (storeIndex, (variant, store)) in stores.enumerated() {
             for name in store.unitNames() {
                 let unit: IndexUnit
                 do {
@@ -63,7 +68,7 @@ public struct UnitSelector: Sendable {
                 }()
                 guard let file = resolved else { continue }
 
-                let key = "\(unit.moduleName)\u{0}\(file)"
+                let key = "\(variant)\u{0}\(unit.moduleName)\u{0}\(file)"
                 if let existing = candidates[key], existing.unit.modificationTime >= unit.modificationTime {
                     continue
                 }
@@ -95,12 +100,15 @@ public struct UnitSelector: Sendable {
         }
         let testModules = testModules.union(heuristicTestModules)
 
+        // Variants that compiled a file identically share its record; read it once.
+        var seenRecords: Set<String> = []
         for (unit, storeIndex, file) in candidates.values {
             let isTest = testModules.contains(unit.moduleName)
             if excludeTests, isTest { continue }
             guard let record = unit.dependencies.first(where: {
                 $0.kind == .record && Paths.canonical($0.filePath) == file
             }) ?? unit.dependencies.first(where: { $0.kind == .record }) else { continue }
+            guard seenRecords.insert("\(unit.moduleName)\u{0}\(file)\u{0}\(record.name)").inserted else { continue }
             units.append(SourceUnit(
                 file: file,
                 module: unit.moduleName,
@@ -109,7 +117,7 @@ public struct UnitSelector: Sendable {
                 recordName: record.name
             ))
         }
-        return units.sorted { ($0.file, $0.module) < ($1.file, $1.module) }
+        return units.sorted { ($0.file, $0.module, $0.storeIndex) < ($1.file, $1.module, $1.storeIndex) }
     }
 
     private func isProjectFile(_ path: String, root: String) -> Bool {

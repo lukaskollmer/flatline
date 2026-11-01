@@ -59,6 +59,16 @@ struct Scan: ParsableCommand {
     @Argument(parsing: .postTerminator, help: "Arguments for swift build or xcodebuild.")
     var buildArguments: [String] = []
 
+    @Option(
+        name: .customLong("variant"),
+        parsing: .unconditionalSingleValue,
+        help: ArgumentHelp(
+            "Build arguments of a variant, e.g. --variant '--traits Postgres' (repeatable).",
+            discussion: "Each variant is built separately; code is unused only if it's unused in all of them."
+        )
+    )
+    var variants: [String] = []
+
     // MARK: Retention
 
     @Flag(inversion: .prefixedNo, help: "Treat public declarations as used (for libraries).")
@@ -172,19 +182,21 @@ struct Scan: ParsableCommand {
         let libraryPath = try Toolchain.indexStoreLibrary(explicit: configuration.indexStoreLibrary)
         logger.debug("Using \(libraryPath)")
         let library = try IndexStoreLibrary(path: libraryPath)
-        let stores = try project.indexStorePaths.map { path in
-            logger.debug("Reading index store \(path)")
-            do {
-                return try IndexStore(path: path, library: library)
-            } catch {
-                throw FlatlineError("could not open the index store at \(path): \(error)")
+        let variants = try project.indexStores.map { paths in
+            try paths.map { path in
+                logger.debug("Reading index store \(path)")
+                do {
+                    return try IndexStore(path: path, library: library)
+                } catch {
+                    throw FlatlineError("could not open the index store at \(path): \(error)")
+                }
             }
         }
 
         var analyzer = SwiftAnalyzer(configuration: configuration, projectRoot: root, logger: logger)
         analyzer.testModules = project.testModules
         analyzer.explain = explain
-        let result = try analyzer.analyze(stores: stores)
+        let result = try analyzer.analyze(variants: variants)
         let statistics = result.statistics
         logger.debug(
             "Indexed \(statistics.declarations) declarations in \(statistics.files) files"
@@ -254,6 +266,7 @@ struct Scan: ParsableCommand {
         set(\.derivedDataPath, derivedDataPath)
         set(\.indexStoreLibrary, indexStoreLibrary)
         if !buildArguments.isEmpty { c.buildArguments = buildArguments }
+        if !variants.isEmpty { c.buildVariants = variants.map { BuildVariant(commandLine: $0) } }
         set(\.retainPublic, retainPublic)
         set(\.retainObjcAnnotated, retainObjcAnnotated)
         set(\.retainObjcAccessible, retainObjcAccessible)

@@ -67,6 +67,36 @@ and stay incremental across runs.
 Test targets are built and analyzed too: code that only tests use counts as
 used. Pass `--exclude-tests` to find code that only tests keep alive.
 
+### Build variants: traits, platforms, configurations
+
+A build compiles only one side of each `#if`: one set of package traits, one
+platform, one configuration. Code that only the other side uses would look
+unused. To analyze several, give each as a build variant. flatline builds each
+variant into a directory of its own and analyzes them together, so a
+declaration is reported only if it's unused in every variant.
+
+```bash
+# Package traits
+flatline scan --variant '--traits defaults' --variant '--traits Postgres'
+
+# An app with shared iOS and watchOS code
+flatline scan --schemes App,WatchApp \
+  --variant "-destination 'generic/platform=iOS Simulator'" \
+  --variant "-destination 'generic/platform=watchOS Simulator'"
+```
+
+```yaml
+build_variants:
+  - [--traits, defaults]
+  - name: postgres
+    build_arguments: [--traits, Postgres]
+```
+
+Each variant's arguments are added to `build_arguments`. Swift packages build
+each variant in `.build/flatline-variants/<variant>`, Xcode projects in
+`<derived data>/<variant>`. If all traits can be enabled at once, a single
+`flatline scan -- --enable-all-traits` is faster.
+
 ### Why is this (not) reported?
 
 `--explain <name>` prints the chain of uses that keeps a declaration alive:
@@ -172,9 +202,10 @@ strict: true
 | `exclude_targets` | | Leave these modules out of the analysis entirely. |
 | `exclude_tests` | `false` | Don't build or analyze test targets. |
 | `build_arguments` | | Extra arguments for `swift build` or `xcodebuild`. |
+| `build_variants` | | Builds to analyze together, each a list of extra build arguments or `{name, build_arguments}`. See [Build variants](#build-variants-traits-platforms-configurations). |
 | `skip_build` | `false` | Use the existing index store. |
 | `clean_build` | `false` | Clean before building. |
-| `index_store_path` | detected | Index stores to read. |
+| `index_store_path` | detected | Index stores to read. Each is analyzed as a variant of its own. |
 | `derived_data_path` | private cache | Derived data directory for Xcode builds. |
 | `index_store_library` | detected | Path to `libIndexStore` (also `FLATLINE_INDEXSTORE_LIBRARY`). |
 | `retain_public` | `false` | Treat `public`/`open` declarations as used. Use it for libraries. |
@@ -232,7 +263,8 @@ For GitLab, `--format codeclimate` produces a Code Quality report.
 ## Linux
 
 Swift packages build and analyze on Linux like on macOS. Xcode projects need
-`xcodebuild`, so build them on a Mac and analyze the index store anywhere:
+`xcodebuild`, so build them on a Mac and analyze the index store anywhere
+(pass `--index-store-path` once per store to analyze several together):
 
 ```bash
 flatline scan --skip-build --index-store-path DataStore
@@ -267,9 +299,9 @@ Differences:
 flatline sees what the compiler indexed in one build. Like Periphery, it can't
 know about:
 
-- Code in inactive `#if` branches (other platforms or configurations): what is
-  only used there is reported as unused. Build the other configurations, or
-  use `// flatline:ignore`.
+- Code in inactive `#if` branches (other platforms, configurations or package
+  traits) unless you add them as [build variants](#build-variants-traits-platforms-configurations):
+  what only they use is reported as unused.
 - Dynamic uses: `NSClassFromString`, `#keyPath`/KVC strings, `Mirror`,
   `perform(_:)` with string selectors, and code loaded by name.
 - Objective-C code itself: its references to Swift count, but unused
@@ -324,6 +356,8 @@ code and its marker to a fixture.
 
 - `Tests/Fixtures/SwiftPackage`: a package with a library, an executable,
   tests, and a macOS-only target (SwiftUI, Objective-C).
+- `Tests/Fixtures/PackageTraits`: a package with code behind a trait, for
+  build variants.
 - `Tests/Fixtures/XcodeProject`: a macOS app with tests and a local package.
   It's generated from `project.yml`; after editing that, run `xcodegen
   generate` in that directory.

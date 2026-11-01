@@ -34,7 +34,19 @@ public struct XcodeDriver: ProjectDriver {
     }
 
     public func prepare(configuration: Configuration, logger: Logger) throws -> PreparedProject {
-        let derivedData = derivedDataPath(configuration)
+        if !configuration.indexStorePath.isEmpty, !configuration.buildVariants.isEmpty {
+            throw FlatlineError(
+                "build_variants and index_store_path can't be combined; "
+                    + "each index store passed with index_store_path is analyzed as a variant of its own"
+            )
+        }
+
+        // Each variant builds into a derived data directory of its own, so the
+        // builds don't overwrite each other's index.
+        let baseDerivedData = derivedDataPath(configuration)
+        let variants = configuration.resolvedVariants.map { variant, directoryName in
+            (variant, directoryName.map { "\(baseDerivedData)/\($0)" } ?? baseDerivedData)
+        }
 
         if !configuration.skipBuild {
             // Checked at runtime rather than with #if, so the build code is
@@ -46,22 +58,39 @@ public struct XcodeDriver: ProjectDriver {
                 )
             }
             let schemes = try resolveSchemes(configuration)
-            for scheme in schemes {
-                try build(scheme: scheme, derivedData: derivedData, configuration: configuration, logger: logger)
+            for (index, (variant, derivedData)) in variants.enumerated() {
+                for scheme in schemes {
+                    let label = variants.count > 1
+                        ? "scheme \(scheme) (variant \(index + 1) of \(variants.count): \(variant.displayName))"
+                        : "scheme \(scheme)"
+                    try build(
+                        scheme: scheme,
+                        label: label,
+                        arguments: configuration.buildArguments + variant.buildArguments,
+                        derivedData: derivedData,
+                        configuration: configuration,
+                        logger: logger
+                    )
+                }
             }
         }
 
-        let stores: [String]
         if !configuration.indexStorePath.isEmpty {
-            stores = configuration.indexStorePath.map { Paths.absolute($0, base: root) }
-        } else {
+            return PreparedProject(
+                root: root,
+                indexStores: IndexStoreLocator.explicitStores(configuration, base: root),
+                testModules: []
+            )
+        }
+        let stores = try variants.map { _, derivedData in
             let candidates = ["\(derivedData)/Index.noindex/DataStore", "\(derivedData)/Index/DataStore"]
-            stores = IndexStoreLocator.existing(candidates)
+            let stores = IndexStoreLocator.existing(candidates)
             guard !stores.isEmpty else {
                 throw FlatlineError("could not find an index store in \(derivedData). Pass --index-store-path.")
             }
+            return stores
         }
-        return PreparedProject(root: root, indexStorePaths: stores, testModules: [])
+        return PreparedProject(root: root, indexStores: stores, testModules: [])
     }
 
     private static var isXcodeAvailable: Bool {
@@ -186,7 +215,14 @@ public struct XcodeDriver: ProjectDriver {
         }
     }
 
-    private func build(scheme: String, derivedData: String, configuration: Configuration, logger: Logger) throws {
+    private func build(
+        scheme: String,
+        label: String,
+        arguments buildArguments: [String],
+        derivedData: String,
+        configuration: Configuration,
+        logger: Logger
+    ) throws {
         var arguments = [configuration.excludeTests ? "build" : "build-for-testing"]
         if configuration.cleanBuild {
             arguments.insert("clean", at: 0)
@@ -204,8 +240,8 @@ public struct XcodeDriver: ProjectDriver {
             "INDEX_ENABLE_DATA_STORE=YES",
             "DEBUG_INFORMATION_FORMAT=dwarf",
         ]
-        arguments += configuration.buildArguments
-        logger.info("Building scheme \(scheme)")
+        arguments += buildArguments
+        logger.info("Building \(label)")
         logger.debug("xcodebuild \(arguments.joined(separator: " "))")
         do {
             try Shell.runChecked("xcodebuild", arguments, in: buildDirectory, passthrough: logger.level >= .verbose)

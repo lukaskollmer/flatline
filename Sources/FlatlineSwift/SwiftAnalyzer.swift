@@ -33,7 +33,15 @@ public struct SwiftAnalyzer: Sendable {
         self.logger = logger
     }
 
+    /// Analyzes the index stores of one build.
     public func analyze(stores: [IndexStore]) throws -> AnalysisResult {
+        try analyze(variants: [stores])
+    }
+
+    /// Analyzes several build variants together: a declaration is unused only
+    /// if it's unused in all of them.
+    public func analyze(variants: [[IndexStore]]) throws -> AnalysisResult {
+        let stores = variants.flatMap { $0 }
         var statistics = AnalysisResult.Statistics()
 
         var selector = UnitSelector(projectRoot: projectRoot)
@@ -41,7 +49,7 @@ public struct SwiftAnalyzer: Sendable {
         selector.excludeTests = configuration.excludeTests
         selector.testModules = testModules
         selector.indexExclude = try configuration.indexExclude.map(Glob.init)
-        let units = try selector.select(from: stores, logger: logger)
+        let units = try selector.select(from: variants, logger: logger)
         guard !units.isEmpty else {
             throw FlatlineError(
                 "the index store has no units for files in \(projectRoot). "

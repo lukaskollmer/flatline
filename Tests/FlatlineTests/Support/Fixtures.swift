@@ -7,12 +7,14 @@ import IndexStore
 /// A fixture project, built once per test run.
 final class BuiltFixture: @unchecked Sendable {
     let project: PreparedProject
-    let stores: [IndexStore]
+    let variants: [[IndexStore]]
 
     init(project: PreparedProject) throws {
         self.project = project
         let library = try IndexStoreLibrary(path: Toolchain.indexStoreLibrary(explicit: nil))
-        stores = try project.indexStorePaths.map { try IndexStore(path: $0, library: library) }
+        variants = try project.indexStores.map { paths in
+            try paths.map { try IndexStore(path: $0, library: library) }
+        }
     }
 
     func analyze(
@@ -24,7 +26,7 @@ final class BuiltFixture: @unchecked Sendable {
         var analyzer = SwiftAnalyzer(configuration: configuration, projectRoot: project.root, logger: Logger(level: .quiet))
         analyzer.testModules = project.testModules
         analyzer.explain = explain
-        return try analyzer.analyze(stores: stores)
+        return try analyzer.analyze(variants: variants)
     }
 
     func findings(_ configure: (inout Configuration) -> Void = { _ in }) throws -> [Finding] {
@@ -59,6 +61,26 @@ enum Fixtures {
         var configuration = Configuration()
         configuration.buildArguments = ["--scratch-path", buildDirectory("SwiftPackage")]
         let driver = SwiftPackageDriver(directory: path("SwiftPackage"))
+        return try driver.prepare(configuration: configuration, logger: Logger(level: .quiet))
+    }
+
+    /// The traits fixture built with its default traits only.
+    static let packageTraitsDefault: Result<BuiltFixture, FlatlineError> = build {
+        var configuration = Configuration()
+        configuration.buildArguments = ["--scratch-path", buildDirectory("PackageTraits")]
+        let driver = SwiftPackageDriver(directory: path("PackageTraits"))
+        return try driver.prepare(configuration: configuration, logger: Logger(level: .quiet))
+    }
+
+    /// The traits fixture built twice, with the default traits and with Fancy.
+    static let packageTraitsVariants: Result<BuiltFixture, FlatlineError> = build {
+        var configuration = Configuration()
+        configuration.buildArguments = ["--scratch-path", buildDirectory("PackageTraits")]
+        configuration.buildVariants = [
+            BuildVariant(name: "default", buildArguments: []),
+            BuildVariant(commandLine: "--traits Fancy"),
+        ]
+        let driver = SwiftPackageDriver(directory: path("PackageTraits"))
         return try driver.prepare(configuration: configuration, logger: Logger(level: .quiet))
     }
 

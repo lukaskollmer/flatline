@@ -158,6 +158,19 @@ struct ConfigurationTests {
         #expect(configuration.format == .githubActions)
     }
 
+    @Test func readsBuildVariants() throws {
+        let configuration = try load("""
+        build_variants:
+          - [--traits, Postgres]
+          - name: watchOS
+            build_arguments: [-destination, "generic/platform=watchOS Simulator"]
+        """)
+        #expect(configuration.buildVariants == [
+            BuildVariant(buildArguments: ["--traits", "Postgres"]),
+            BuildVariant(name: "watchOS", buildArguments: ["-destination", "generic/platform=watchOS Simulator"]),
+        ])
+    }
+
     @Test func rejectsInvalidValues() {
         #expect(throws: FlatlineError.self) {
             try load("format: html")

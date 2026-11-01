@@ -17,6 +17,10 @@ public struct Configuration: Codable, Sendable, Equatable {
     public var excludeTests: Bool = false
     /// Extra arguments for `swift build` or `xcodebuild`.
     public var buildArguments: [String] = []
+    /// Build configurations to build separately and analyze together, e.g.
+    /// package trait sets or destinations. Code is unused only if it's unused
+    /// in every variant. Empty means one build.
+    public var buildVariants: [BuildVariant] = []
     /// Use an existing index store instead of building.
     public var skipBuild: Bool = false
     /// Clean before building.
@@ -101,6 +105,7 @@ public struct Configuration: Codable, Sendable, Equatable {
         case excludeTargets = "exclude_targets"
         case excludeTests = "exclude_tests"
         case buildArguments = "build_arguments"
+        case buildVariants = "build_variants"
         case skipBuild = "skip_build"
         case cleanBuild = "clean_build"
         case indexStorePath = "index_store_path"
@@ -156,6 +161,7 @@ public struct Configuration: Codable, Sendable, Equatable {
         excludeTargets = try list(.excludeTargets, defaults.excludeTargets)
         excludeTests = try value(.excludeTests, defaults.excludeTests)
         buildArguments = try list(.buildArguments, defaults.buildArguments)
+        buildVariants = try value(.buildVariants, defaults.buildVariants)
         skipBuild = try value(.skipBuild, defaults.skipBuild)
         cleanBuild = try value(.cleanBuild, defaults.cleanBuild)
         indexStorePath = try list(.indexStorePath, defaults.indexStorePath)
@@ -196,6 +202,7 @@ public struct Configuration: Codable, Sendable, Equatable {
         try c.encode(excludeTargets, forKey: .excludeTargets)
         try c.encode(excludeTests, forKey: .excludeTests)
         try c.encode(buildArguments, forKey: .buildArguments)
+        try c.encode(buildVariants, forKey: .buildVariants)
         try c.encode(skipBuild, forKey: .skipBuild)
         try c.encode(cleanBuild, forKey: .cleanBuild)
         try c.encode(indexStorePath, forKey: .indexStorePath)
@@ -226,5 +233,80 @@ public struct Configuration: Codable, Sendable, Equatable {
         try c.encodeIfPresent(writeBaseline, forKey: .writeBaseline)
         try c.encode(verbose, forKey: .verbose)
         try c.encode(quiet, forKey: .quiet)
+    }
+}
+
+/// One of several builds of a project whose indexes are analyzed together.
+public struct BuildVariant: Codable, Sendable, Equatable {
+    /// Shown in progress output and used for the build directory.
+    public var name: String?
+    /// Added to `build_arguments` for this variant's build.
+    public var buildArguments: [String]
+
+    public init(name: String? = nil, buildArguments: [String]) {
+        self.name = name
+        self.buildArguments = buildArguments
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case buildArguments = "build_arguments"
+    }
+
+    /// Accepts `{name: ..., build_arguments: [...]}`, or just the list of arguments.
+    public init(from decoder: any Decoder) throws {
+        if let arguments = try? decoder.singleValueContainer().decode([String].self) {
+            self.init(buildArguments: arguments)
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: try container.decodeIfPresent(String.self, forKey: .name),
+            buildArguments: try container.decodeIfPresent([String].self, forKey: .buildArguments) ?? []
+        )
+    }
+
+    /// Splits `commandLine` into arguments, honoring single and double quotes.
+    public init(commandLine: String) {
+        var arguments: [String] = []
+        var current = ""
+        var quote: Character?
+        var isInArgument = false
+        for character in commandLine {
+            if let open = quote {
+                if character == open { quote = nil } else { current.append(character) }
+            } else if character == "\"" || character == "'" {
+                quote = character
+                isInArgument = true
+            } else if character.isWhitespace {
+                if isInArgument {
+                    arguments.append(current)
+                    current = ""
+                    isInArgument = false
+                }
+            } else {
+                current.append(character)
+                isInArgument = true
+            }
+        }
+        if isInArgument {
+            arguments.append(current)
+        }
+        self.init(buildArguments: arguments)
+    }
+
+    /// A name that is unique among the variants and safe to use in a path.
+    public func directoryName(index: Int) -> String {
+        let label = name ?? buildArguments.joined(separator: " ")
+        let slug = String(String(label.map { $0.isLetter || $0.isNumber ? $0 : "-" })
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+            .prefix(40))
+        return slug.isEmpty ? "\(index + 1)" : "\(index + 1)-\(slug)"
+    }
+
+    /// For progress output.
+    public var displayName: String {
+        name ?? (buildArguments.isEmpty ? "default" : buildArguments.joined(separator: " "))
     }
 }

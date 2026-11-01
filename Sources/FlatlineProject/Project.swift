@@ -5,7 +5,9 @@ import Foundation
 public struct PreparedProject: Sendable {
     /// Only files under this directory are analyzed.
     public let root: String
-    public let indexStorePaths: [String]
+    /// The index stores of each build variant. Within a variant, the newest
+    /// unit of a file wins; the variants are analyzed together.
+    public let indexStores: [[String]]
     /// Modules the project describes as test targets.
     public let testModules: Set<String>
 }
@@ -94,7 +96,7 @@ struct IndexStoreDriver: ProjectDriver {
     func prepare(configuration: Configuration, logger _: Logger) throws -> PreparedProject {
         PreparedProject(
             root: root,
-            indexStorePaths: configuration.indexStorePath.map { Paths.absolute($0, base: root) },
+            indexStores: IndexStoreLocator.explicitStores(configuration, base: root),
             testModules: []
         )
     }
@@ -112,5 +114,22 @@ enum IndexStoreLocator {
     /// so all are read and the newest unit of each file wins.
     static func existing(_ candidates: [String]) -> [String] {
         candidates.filter(isIndexStore)
+    }
+
+    /// Index stores passed with `index_store_path`, each one a separate variant.
+    static func explicitStores(_ configuration: Configuration, base: String) -> [[String]] {
+        configuration.indexStorePath.map { [Paths.absolute($0, base: base)] }
+    }
+}
+
+extension Configuration {
+    /// The builds to run: one per variant, or a single default build.
+    var resolvedVariants: [(variant: BuildVariant, directoryName: String?)] {
+        guard !buildVariants.isEmpty else {
+            return [(BuildVariant(buildArguments: []), nil)]
+        }
+        return buildVariants.enumerated().map { index, variant in
+            (variant, variant.directoryName(index: index))
+        }
     }
 }
