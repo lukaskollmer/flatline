@@ -25,8 +25,37 @@ jobs:
           )
           sudo xcode-select --switch "$xcode"
           xcrun swift --version
+      - name: Build
+        run: swift build --build-tests
       - name: Test
-        run: swift test
+        run: |
+          # The tests have hung on macOS CI. If they take longer than 5
+          # minutes, print the process tree and stack samples, then stop them.
+          swift test --skip-build &
+          tests=$!
+          (
+            for _ in $(seq 60); do
+              sleep 5
+              kill -0 "$tests" 2>/dev/null || exit 0
+            done
+            echo "::error::Tests still running after 5 minutes"
+            echo "::group::Processes"
+            ps -axo pid,ppid,etime,stat,command
+            echo "::endgroup::"
+            for pid in $(pgrep -f 'swiftpm-testing-helper|xctest|swift-build|swift-package|xcodebuild'); do
+              echo "::group::sample $(ps -o pid=,command= -p "$pid" | cut -c 1-160)"
+              sudo sample "$pid" 3 -file "$RUNNER_TEMP/sample-$pid.txt" >/dev/null 2>&1 \
+                && cat "$RUNNER_TEMP/sample-$pid.txt" || echo "(could not sample)"
+              echo "::endgroup::"
+            done
+            pkill -f 'swiftpm-testing-helper|xctest' || true
+            kill "$tests" 2>/dev/null || true
+          ) &
+          watchdog=$!
+          status=0
+          wait "$tests" || status=$?
+          wait "$watchdog" || true
+          exit "$status"
       - name: Find unused code in flatline
         run: swift run flatline scan --strict --format github-actions
 
