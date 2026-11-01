@@ -1,7 +1,7 @@
 name: Release
 
-# Publishing a GitHub release builds flatline for Apple silicon and Intel,
-# attaches the binaries to the release, and updates the formula in
+# Publishing a GitHub release builds flatline for Apple silicon, attaches the
+# binary to the release, and updates the formula in
 # lukaskollmer/homebrew-formulae. Running the workflow by hand redoes this for
 # the latest release.
 
@@ -47,23 +47,14 @@ jobs:
           sw_vers
           xcodebuild -version
           xcrun swift --version
-      # Homebrew Releaser expects <repo>-<version>-darwin-<arch>.tar.gz. Both
-      # builds can write to the same bin directory, so each is archived before
-      # the next one starts.
-      - name: Build (Apple silicon)
+      # Homebrew Releaser expects <repo>-<version>-darwin-<arch>.tar.gz.
+      - name: Build
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           xcrun swift build -c release --arch arm64 --product flatline
           tar -czf "flatline-$VERSION-darwin-arm64.tar.gz" \
             -C "$(xcrun swift build -c release --arch arm64 --show-bin-path)" flatline
-      - name: Build (Intel)
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          xcrun swift build -c release --arch x86_64 --product flatline
-          tar -czf "flatline-$VERSION-darwin-amd64.tar.gz" \
-            -C "$(xcrun swift build -c release --arch x86_64 --show-bin-path)" flatline
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,8 +79,9 @@ jobs:
           github_token: ${{ secrets.GH_PAT }}
           commit_owner: lukaskollmer
           commit_email: gh@lukaskollmer.de
+          # There's no Intel binary.
+          depends_on: 'arch: :arm64'
           install: 'bin.install "flatline"'
           test: 'assert_match version.to_s, shell_output("#{bin}/flatline --version")'
           target_darwin_arm64: true
-          target_darwin_amd64: true
           update_readme_table: true
