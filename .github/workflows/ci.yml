@@ -19,7 +19,7 @@ jobs:
           xcode=$(
             for app in /Applications/Xcode_*.app; do
               app=$(realpath "$app")
-              case "$app" in *[Bb]eta*|*Release_Candidate*) continue ;; esac
+              [[ $app == *[Bb]eta* || $app == *Release_Candidate* ]] && continue
               echo "$(defaults read "$app/Contents/Info" CFBundleShortVersionString) $app"
             done | sort -V | tail -n 1 | cut -d ' ' -f 2-
           )
