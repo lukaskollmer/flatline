@@ -24,11 +24,21 @@ flatline needs a Swift 6 toolchain: Xcode 16 or later on macOS, or a
 [Swift toolchain](https://www.swift.org/install/linux/) on Linux. It's tested
 with Swift 6.4 (Xcode 27) on macOS and the `swift:6.4` image on Linux.
 
-Build it from a checkout of this repository:
+Build it from a checkout of this repository. On macOS, go through `xcrun` so
+the selected Xcode's toolchain builds it, not whichever `swift` comes first on
+`PATH` (e.g. a swiftly or swift.org toolchain, which may not match the SDK):
+
+```bash
+xcrun swift build -c release
+```
+
+On Linux:
 
 ```bash
 swift build -c release
 ```
+
+Then put the binary on your `PATH`:
 
 ```bash
 cp .build/release/flatline /usr/local/bin/
@@ -345,8 +355,10 @@ can reuse the `IndexStore` module.
 ## Development
 
 ```bash
-swift test
+xcrun swift test
 ```
+
+(On Linux, `swift test`.)
 
 The tests build fixture projects in `Tests/Fixtures` and compare flatline's
 results with markers in their sources. A comment like `// expect: unused` or
@@ -368,4 +380,4 @@ To see what the compiler indexed for a file:
 flatline dump-index --index-store-path .build/out MyFile.swift
 ```
 
-flatline runs on itself: `swift run flatline scan` (configured in `.flatline.yml`).
+flatline runs on itself: `xcrun swift run flatline scan` (configured in `.flatline.yml`).
