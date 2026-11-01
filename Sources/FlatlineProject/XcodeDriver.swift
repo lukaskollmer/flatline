@@ -95,31 +95,95 @@ public struct XcodeDriver: ProjectDriver {
     struct List: Decodable {
         struct Container: Decodable {
             let schemes: [String]?
+            let targets: [String]?
         }
 
         let workspace: Container?
         let project: Container?
     }
 
-    func availableSchemes() throws -> [String] {
+    /// Schemes and targets as `xcodebuild -list` reports them. Slow for
+    /// projects with packages, since it resolves them first.
+    func list() throws -> (schemes: [String], targets: [String]) {
         let result = try Shell.runChecked("xcodebuild", ["-list", "-json"] + projectArguments, in: buildDirectory)
-        guard let start = result.output.firstIndex(of: "{") else { return [] }
+        guard let start = result.output.firstIndex(of: "{") else { return ([], []) }
         let list = try JSONDecoder().decode(List.self, from: Data(result.output[start...].utf8))
-        return (list.workspace ?? list.project)?.schemes ?? []
+        let container = list.workspace ?? list.project
+        return (container?.schemes ?? [], container?.targets ?? [])
     }
 
     private func resolveSchemes(_ configuration: Configuration) throws -> [String] {
-        if !configuration.schemes.isEmpty {
-            return configuration.schemes
+        guard !configuration.schemes.isEmpty else {
+            let available = try list().schemes
+            if available.count == 1 {
+                return available
+            }
+            throw FlatlineError(
+                "choose the schemes to build with --schemes or `schemes:` in .flatline.yml. "
+                    + "Available schemes: \(available.joined(separator: ", "))"
+            )
         }
-        let available = try availableSchemes()
-        if available.count == 1 {
-            return available
+
+        // Check every scheme before building any, so a typo doesn't fail
+        // the run after a long build. Scheme files on disk are the fast path.
+        let requested = configuration.schemes
+        let onDisk = schemeFilesOnDisk()
+        guard !requested.allSatisfy(onDisk.contains) else { return requested }
+
+        let (schemes, targets) = try list()
+        let missing = requested.filter { !schemes.contains($0) }
+        guard !missing.isEmpty else { return requested }
+
+        let problems = missing.map { name in
+            targets.contains(name)
+                ? "'\(name)' is a target, not a scheme"
+                : "there is no scheme named '\(name)'"
         }
         throw FlatlineError(
-            "choose the schemes to build with --schemes or `schemes:` in .flatline.yml. "
-                + "Available schemes: \(available.joined(separator: ", "))"
+            problems.joined(separator: "; ") + ". Available schemes: \(schemes.joined(separator: ", "))"
         )
+    }
+
+    /// Names of the shared and user schemes stored in the project or
+    /// workspace, and in the projects a workspace contains.
+    private func schemeFilesOnDisk() -> Set<String> {
+        var containers: [String] = []
+        switch kind {
+        case .project:
+            containers = [path]
+        case .workspace:
+            containers = [path] + projectsInWorkspace()
+        case .package:
+            containers = ["\(path)/.swiftpm/xcode"]
+        }
+
+        var names: Set<String> = []
+        let fileManager = FileManager.default
+        for container in containers {
+            var directories = ["\(container)/xcshareddata/xcschemes"]
+            let userData = "\(container)/xcuserdata"
+            for user in (try? fileManager.contentsOfDirectory(atPath: userData)) ?? [] {
+                directories.append("\(userData)/\(user)/xcschemes")
+            }
+            for directory in directories {
+                for file in (try? fileManager.contentsOfDirectory(atPath: directory)) ?? [] where file.hasSuffix(".xcscheme") {
+                    names.insert(String(file.dropLast(".xcscheme".count)))
+                }
+            }
+        }
+        return names
+    }
+
+    /// Projects referenced from a workspace's `contents.xcworkspacedata`.
+    private func projectsInWorkspace() -> [String] {
+        guard let contents = try? String(contentsOfFile: "\(path)/contents.xcworkspacedata", encoding: .utf8),
+              let regex = try? NSRegularExpression(pattern: #"location\s*=\s*"(?:group|container|absolute):([^"]+\.xcodeproj)""#)
+        else { return [] }
+        let workspaceDirectory = (path as NSString).deletingLastPathComponent
+        let range = NSRange(contents.startIndex..., in: contents)
+        return regex.matches(in: contents, range: range).compactMap { match in
+            Range(match.range(at: 1), in: contents).map { Paths.absolute(String(contents[$0]), base: workspaceDirectory) }
+        }
     }
 
     private func build(scheme: String, derivedData: String, configuration: Configuration, logger: Logger) throws {
