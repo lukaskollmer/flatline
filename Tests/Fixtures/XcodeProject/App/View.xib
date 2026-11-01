@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Not part of the target; flatline scans Interface Builder files under the project root. -->
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0">
+    <objects>
+        <customView id="1" customClass="XibView"/>
+    </objects>
+</document>

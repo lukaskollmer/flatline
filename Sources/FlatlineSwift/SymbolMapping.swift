@@ -87,10 +87,44 @@ extension String {
         hasPrefix("$s") && contains("fM")
     }
 
+    /// The macros named in a macro expansion name: each `<length><name>fM<kind>_`.
+    var expandedMacroNames: Set<String> {
+        guard isMacroExpansionName else { return [] }
+        let characters = Array(utf8)
+        var names: Set<String> = []
+        var index = 0
+        while index < characters.count {
+            // Try every digit, not just the start of a run: in `Suite15Suite`, the
+            // length `5` follows a name ending in a digit.
+            guard characters[index].isDigit else {
+                index += 1
+                continue
+            }
+            var end = index
+            var length = 0
+            while end < characters.count, characters[end].isDigit {
+                length = length * 10 + Int(characters[end] - UInt8(ascii: "0"))
+                end += 1
+            }
+            let nameEnd = end + length
+            if length > 0, nameEnd + 4 <= characters.count,
+               characters[nameEnd] == UInt8(ascii: "f"), characters[nameEnd + 1] == UInt8(ascii: "M"),
+               characters[nameEnd + 3] == UInt8(ascii: "_") {
+                names.insert(String(decoding: characters[end ..< nameEnd], as: UTF8.self))
+            }
+            index += 1
+        }
+        return names
+    }
+
     /// The USR clang uses for an `@objc` Swift declaration: Swift records
     /// `c:@M@Module@objc(cs)Name`, Objective-C code refers to `c:objc(cs)Name`.
     var objcUSRWithoutModule: String? {
         guard hasPrefix("c:@M@"), let range = range(of: "@objc(") else { return nil }
         return "c:" + self[index(after: range.lowerBound)...]
     }
+}
+
+private extension UInt8 {
+    var isDigit: Bool { self >= UInt8(ascii: "0") && self <= UInt8(ascii: "9") }
 }

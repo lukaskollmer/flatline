@@ -46,7 +46,10 @@ let package = Package(
         // Project drivers: SwiftPM, Xcode, and prebuilt index stores.
         .target(
             name: "FlatlineProject",
-            dependencies: ["FlatlineCore"]
+            dependencies: [
+                "FlatlineCore",
+                .product(name: "Yams", package: "Yams"),
+            ]
         ),
         .executableTarget(
             name: "flatline",
@@ -55,7 +58,6 @@ let package = Package(
                 "FlatlineSwift",
                 "FlatlineProject",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "Yams", package: "Yams"),
             ]
         ),
         .testTarget(

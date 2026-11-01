@@ -1,0 +1,41 @@
+# Regenerate FixtureApp.xcodeproj with `xcodegen generate` after editing.
+name: FixtureApp
+options:
+  bundleIdPrefix: dev.flatline.fixture
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  Utilities:
+    path: Packages/Utilities
+targets:
+  App:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes: [View.xib]
+    dependencies:
+      - package: Utilities
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: App/Info.plist
+        SWIFT_VERSION: "5.0"
+  AppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [AppTests]
+    dependencies:
+      - target: App
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+schemes:
+  App:
+    build:
+      targets:
+        App: all
+        AppTests: [test]
+    test:
+      targets: [AppTests]
