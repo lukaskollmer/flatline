@@ -37,17 +37,18 @@ public struct XcodeDriver: ProjectDriver {
         let derivedData = derivedDataPath(configuration)
 
         if !configuration.skipBuild {
-            #if !os(macOS)
-            throw FlatlineError(
-                "Xcode projects can only be built on macOS. "
-                    + "To analyze one here, copy its index store and pass --skip-build --index-store-path."
-            )
-            #else
+            // Checked at runtime rather than with #if, so the build code is
+            // compiled (and analyzed) on every platform.
+            guard Self.isXcodeAvailable else {
+                throw FlatlineError(
+                    "Xcode projects can only be built on macOS. "
+                        + "To analyze one here, copy its index store and pass --skip-build --index-store-path."
+                )
+            }
             let schemes = try resolveSchemes(configuration)
             for scheme in schemes {
                 try build(scheme: scheme, derivedData: derivedData, configuration: configuration, logger: logger)
             }
-            #endif
         }
 
         let stores: [String]
@@ -61,6 +62,14 @@ public struct XcodeDriver: ProjectDriver {
             }
         }
         return PreparedProject(root: root, indexStorePaths: stores, testModules: [])
+    }
+
+    private static var isXcodeAvailable: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
     }
 
     func derivedDataPath(_ configuration: Configuration) -> String {

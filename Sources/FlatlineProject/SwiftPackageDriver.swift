@@ -18,9 +18,14 @@ public struct SwiftPackageDriver: ProjectDriver {
                 logger.info("Cleaning \(package.name)")
                 _ = try Toolchain.runSwift(["package", "clean"], in: directory)
             }
-            var arguments = ["build", "--enable-index-store"]
+            // Debug builds are indexed by default. Requesting it explicitly breaks
+            // test discovery on Linux with Swift Build, so only do it for release builds.
+            var arguments = ["build"]
             if !configuration.excludeTests {
                 arguments.append("--build-tests")
+            }
+            if Self.isReleaseBuild(configuration.buildArguments) {
+                arguments.append("--enable-index-store")
             }
             arguments += configuration.buildArguments
             logger.info("Building \(package.name)")
@@ -35,6 +40,12 @@ public struct SwiftPackageDriver: ProjectDriver {
             stores = try locateIndexStores(buildArguments: configuration.buildArguments)
         }
         return PreparedProject(root: directory, indexStorePaths: stores, testModules: testModules)
+    }
+
+    static func isReleaseBuild(_ arguments: [String]) -> Bool {
+        zip(arguments, arguments.dropFirst()).contains { flag, value in
+            (flag == "-c" || flag == "--configuration") && value == "release"
+        } || arguments.contains("--configuration=release")
     }
 
     struct PackageDescription: Decodable {
