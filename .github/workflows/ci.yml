@@ -9,7 +9,7 @@ jobs:
   macos:
     # The newest image with a stable Xcode; macos-latest still ships Xcode 26 (Swift 6.3).
     runs-on: xcode-27
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Select the latest stable Xcode
@@ -29,16 +29,16 @@ jobs:
         run: swift build --build-tests
       - name: Test
         run: |
-          # The tests have hung on macOS CI. If they take longer than 5
+          # The tests have hung on macOS CI. If they take longer than 3
           # minutes, print the process tree and stack samples, then stop them.
           swift test --skip-build &
           tests=$!
           (
-            for _ in $(seq 60); do
+            for _ in $(seq 36); do
               sleep 5
               kill -0 "$tests" 2>/dev/null || exit 0
             done
-            echo "::error::Tests still running after 5 minutes"
+            echo "::error::Tests still running after 3 minutes"
             echo "::group::Processes"
             ps -axo pid,ppid,etime,stat,command
             echo "::endgroup::"
@@ -62,7 +62,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     container: swift:latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Test
