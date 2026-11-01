@@ -93,6 +93,13 @@ public struct XcodeDriver: ProjectDriver {
         return PreparedProject(root: root, indexStores: stores, testModules: [])
     }
 
+    static let instrumentationOptions = [
+        "-enableCodeCoverage",
+        "-enableAddressSanitizer",
+        "-enableThreadSanitizer",
+        "-enableUndefinedBehaviorSanitizer",
+    ]
+
     private static var isXcodeAvailable: Bool {
         #if os(macOS)
         true
@@ -240,6 +247,13 @@ public struct XcodeDriver: ProjectDriver {
             "INDEX_ENABLE_DATA_STORE=YES",
             "DEBUG_INFORMATION_FORMAT=dwarf",
         ]
+        // Schemes can turn on coverage or sanitizers, which change how every
+        // target is compiled. Schemes building into the same derived data would
+        // then keep invalidating each other's builds, so each run rebuilds
+        // everything. None of them affect the index.
+        for option in Self.instrumentationOptions where !buildArguments.contains(option) {
+            arguments += [option, "NO"]
+        }
         arguments += buildArguments
         logger.info("Building \(label)")
         logger.debug("xcodebuild \(arguments.joined(separator: " "))")

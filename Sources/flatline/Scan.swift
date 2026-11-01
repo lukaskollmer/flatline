@@ -177,6 +177,7 @@ struct Scan: ParsableCommand {
         let kind = try ProjectDetector.detect(configuration: configuration, directory: workingDirectory)
         let driver = ProjectDetector.driver(for: kind, configuration: configuration, workingDirectory: workingDirectory)
         let project = try driver.prepare(configuration: configuration, logger: logger)
+        let buildDuration = Date().timeIntervalSince(start)
         let root = Paths.canonical(project.root)
 
         let libraryPath = try Toolchain.indexStoreLibrary(explicit: configuration.indexStoreLibrary)
@@ -226,17 +227,26 @@ struct Scan: ParsableCommand {
             FileHandle.standardOutput.write(Data((output + "\n").utf8))
         }
 
-        let duration = String(format: "%.1f", Date().timeIntervalSince(start))
+        let analysisDuration = Date().timeIntervalSince(start) - buildDuration
+        let duration = configuration.skipBuild
+            ? Self.format(analysisDuration)
+            : "build \(Self.format(buildDuration)), analysis \(Self.format(analysisDuration))"
         if findings.isEmpty {
-            logger.info("No unused code found (\(duration)s)")
+            logger.info("No unused code found (\(duration))")
         } else {
             let counts = Dictionary(grouping: findings, by: \.kind).mapValues(\.count)
             let summary = Finding.Kind.allCases.compactMap { kind in
                 counts[kind].map { "\($0) \(kind.summaryName(count: $0))" }
             }.joined(separator: ", ")
-            logger.info("Found \(findings.count) result\(findings.count == 1 ? "" : "s"): \(summary) (\(duration)s)")
+            logger.info("Found \(findings.count) result\(findings.count == 1 ? "" : "s"): \(summary) (\(duration))")
         }
         return findings.count
+    }
+
+    private static func format(_ seconds: TimeInterval) -> String {
+        seconds < 60
+            ? String(format: "%.1fs", seconds)
+            : String(format: "%dm %02ds", Int(seconds) / 60, Int(seconds) % 60)
     }
 
     /// Applies command-line options on top of the configuration file.
