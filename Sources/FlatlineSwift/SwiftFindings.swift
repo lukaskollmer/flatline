@@ -176,6 +176,9 @@ extension SwiftGraphBuilder {
             let id = declaration.id
             guard let accessibility = declaration.explicitAccessibility, accessibility >= .public,
                   graph.isReachable(id), overrides[id] == nil,
+                  // Members used by language features (property wrappers, result
+                  // builders, ...) must be as accessible as their type.
+                  !ruleRetained.contains(id) || syntax[id]?.isStored == true,
                   !(declaration.parent.map { graph[$0].kind == .protocol } ?? false),
                   !declaration.attributes.contains("usableFromInline")
             else { continue }

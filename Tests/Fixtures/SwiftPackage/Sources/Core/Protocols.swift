@@ -71,3 +71,16 @@ final class Dog: Pet {
 func greetPet(_ pet: some Pet) -> String {
     "\(pet.name): \(pet.sound())"
 }
+
+protocol Anchored {
+    associatedtype Anchor
+}
+
+protocol DefaultAnchor {
+    /// Satisfies `Anchored.Anchor` for types that conform to both.
+    typealias Anchor = Int
+}
+
+struct AnchoredValue: Anchored, DefaultAnchor {}
+
+func anchor<T: Anchored>(of _: T) -> T.Anchor.Type { T.Anchor.self }

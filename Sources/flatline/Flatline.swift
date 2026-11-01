@@ -8,7 +8,7 @@ struct Flatline: ParsableCommand {
         commandName: "flatline",
         abstract: "Find unused code in Swift packages and Xcode projects.",
         version: version,
-        subcommands: [Scan.self],
+        subcommands: [Scan.self, DumpIndex.self],
         defaultSubcommand: Scan.self
     )
 }

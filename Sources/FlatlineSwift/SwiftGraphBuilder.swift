@@ -239,6 +239,11 @@ final class SwiftGraphBuilder {
                     recordStats(of: occurrence, target: target, module: file.unit.module)
                     if graph[target].kind == .protocol {
                         conformingTypes[target, default: []].insert(owner)
+                        // Typealiases of a protocol can satisfy the conforming type's
+                        // associated types, so the conformance can't be removed.
+                        if members(of: target).contains(where: { graph[$0].kind == .typealias }) {
+                            graph.addReference(from: subtype, to: target)
+                        }
                     } else {
                         graph.addReference(from: subtype, to: target)
                     }

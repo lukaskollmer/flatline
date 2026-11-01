@@ -16,6 +16,7 @@ func internalRun() {
     _ = ConformsToRedundant()
     _ = firstItem(of: IntStore())
     _ = greetPet(Dog())
+    _ = anchor(of: AnchoredValue())
 
     _ = describeVehicle(Car())
     _ = Sub().template()

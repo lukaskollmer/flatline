@@ -78,6 +78,9 @@ extension SwiftGraphBuilder {
         switch declaration.kind {
         case .deinitializer:
             retainWithOwner(id, rule: "deinitializers run implicitly")
+        case .typealias where isInProtocol(id):
+            // Can satisfy associated types of conforming types, which the index doesn't record.
+            retainWithOwner(id, rule: "typealiases in protocols can satisfy associated types")
         case .instanceMethod where declaration.name.hasPrefix("callAsFunction("):
             retainWithOwner(id, rule: "callAsFunction is called implicitly")
         default:
@@ -183,6 +186,14 @@ extension SwiftGraphBuilder {
                 }
             }
         }
+    }
+
+    /// Declared in a protocol or a protocol extension.
+    private func isInProtocol(_ id: Declaration.ID) -> Bool {
+        if case let .local(owner) = owner(of: id) {
+            return graph[owner].kind == .protocol
+        }
+        return false
     }
 
     func isObjcAnnotated(_ id: Declaration.ID) -> Bool {

@@ -82,14 +82,28 @@ public enum Shell {
     ) throws -> ProcessResult {
         let result = try run(program, arguments, in: directory, environment: environment, passthrough: passthrough)
         guard result.succeeded else {
-            let log = (result.output + "\n" + result.errorOutput)
-                .split(separator: "\n", omittingEmptySubsequences: true)
-                .suffix(40)
-                .joined(separator: "\n")
             let command = ([program] + arguments).joined(separator: " ")
+            let log = summarize(result.output + "\n" + result.errorOutput)
             throw FlatlineError("\(command) failed with exit status \(result.status)" + (log.isEmpty ? "" : ":\n\(log)"))
         }
         return result
+    }
+
+    /// The error lines of a (build) log, or its last lines if there are none.
+    /// Compiler command lines can be many kilobytes long, so lines are shortened.
+    static func summarize(_ log: String) -> String {
+        let lines = log
+            .replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        var errors: [String] = []
+        for line in lines where line.contains("error:") && !errors.contains(line) {
+            errors.append(line)
+        }
+        let selected = errors.isEmpty ? Array(lines.suffix(20)) : Array(errors.prefix(20))
+        return selected
+            .map { $0.count > 300 ? $0.prefix(300) + "…" : $0 }
+            .joined(separator: "\n")
     }
 }
 
