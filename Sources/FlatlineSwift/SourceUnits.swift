@@ -13,7 +13,6 @@ public struct SourceUnit: Sendable {
     public let file: String
     public let module: String
     public let language: Language
-    public let isTestModule: Bool
     let storeIndex: Int
     let recordName: String
 }
@@ -72,6 +71,21 @@ public struct UnitSelector: Sendable {
             }
         }
 
+        let stale = Set(candidates.values.filter { candidate in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: candidate.file)
+            let modified = attributes?[.modificationDate] as? Date ?? .distantPast
+            return modified > candidate.unit.modificationTime
+        }.map(\.file))
+        if !stale.isEmpty {
+            logger.warning(
+                "\(stale.count) file\(stale.count == 1 ? " was" : "s were") modified after being indexed; "
+                    + "results for \(stale.count == 1 ? "it" : "them") may be wrong. Build again (without --skip-build)."
+            )
+            for file in stale.sorted() {
+                logger.debug("Stale index: \(file)")
+            }
+        }
+
         var units: [SourceUnit] = []
         var heuristicTestModules: Set<String> = []
         for (unit, _, _) in candidates.values where unit.dependencies.contains(where: {
@@ -91,7 +105,6 @@ public struct UnitSelector: Sendable {
                 file: file,
                 module: unit.moduleName,
                 language: unit.providerIdentifier == "swift" ? .swift : .clang,
-                isTestModule: isTest,
                 storeIndex: storeIndex,
                 recordName: record.name
             ))

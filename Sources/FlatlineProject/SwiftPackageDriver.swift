@@ -5,8 +5,6 @@ import Foundation
 public struct SwiftPackageDriver: ProjectDriver {
     public let directory: String
 
-    public var root: String { directory }
-
     public init(directory: String) {
         self.directory = directory
     }
@@ -34,7 +32,7 @@ public struct SwiftPackageDriver: ProjectDriver {
         if !configuration.indexStorePath.isEmpty {
             stores = configuration.indexStorePath.map { Paths.absolute($0, base: directory) }
         } else {
-            stores = [try locateIndexStore(buildArguments: configuration.buildArguments)]
+            stores = try locateIndexStores(buildArguments: configuration.buildArguments)
         }
         return PreparedProject(root: directory, indexStorePaths: stores, testModules: testModules)
     }
@@ -65,9 +63,10 @@ public struct SwiftPackageDriver: ProjectDriver {
         }
     }
 
-    /// Where `swift build` put the index store. It differs between build systems:
-    /// `.build/out` with Swift Build, `.build/<triple>/debug/index/store` with the native one.
-    func locateIndexStore(buildArguments: [String]) throws -> String {
+    /// Where `swift build` put the index. It differs between build systems and
+    /// commands: `.build/out` or `.build/out/Products/Debug/index/store` with
+    /// Swift Build, `.build/<triple>/debug/index/store` with the native one.
+    func locateIndexStores(buildArguments: [String]) throws -> [String] {
         let result = try Toolchain.runSwift(["build", "--show-bin-path"] + buildArguments, in: directory)
         let binPath = result.output.split(separator: "\n").last.map(String.init)?
             .trimmingCharacters(in: .whitespaces) ?? ""
@@ -76,12 +75,13 @@ public struct SwiftPackageDriver: ProjectDriver {
             url.appendingPathComponent("index/store").path,
             url.deletingLastPathComponent().deletingLastPathComponent().path,
         ]
-        guard let store = IndexStoreLocator.newest(of: candidates) else {
+        let stores = IndexStoreLocator.existing(candidates)
+        guard !stores.isEmpty else {
             throw FlatlineError(
                 "could not find the index store of \(directory) (looked in \(candidates.joined(separator: ", "))). "
                     + "Pass --index-store-path."
             )
         }
-        return store
+        return stores
     }
 }

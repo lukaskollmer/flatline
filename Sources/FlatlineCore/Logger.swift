@@ -39,12 +39,6 @@ public struct Logger: Sendable {
         write(styled("error:", "1;31") + " " + message())
     }
 
-    /// Passes through output of a child process (e.g. a build log) in verbose mode.
-    public func passthrough(_ text: String) {
-        guard level >= .verbose else { return }
-        FileHandle.standardError.write(Data(text.utf8))
-    }
-
     private func styled(_ text: String, _ code: String) -> String {
         colors ? "\u{1B}[\(code)m\(text)\u{1B}[0m" : text
     }

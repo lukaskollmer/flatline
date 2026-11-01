@@ -185,6 +185,12 @@ struct Scan: ParsableCommand {
         analyzer.testModules = project.testModules
         analyzer.explain = explain
         let result = try analyzer.analyze(stores: stores)
+        let statistics = result.statistics
+        logger.debug(
+            "Indexed \(statistics.declarations) declarations in \(statistics.files) files"
+                + (statistics.unreadableRecords > 0 ? ", \(statistics.unreadableRecords) unreadable index records" : "")
+                + (statistics.unparseableFiles > 0 ? ", \(statistics.unparseableFiles) unreadable source files" : "")
+        )
 
         var findings = result.findings
         if let path = configuration.writeBaseline {

@@ -1,0 +1,8 @@
+# Configuration for running flatline on itself: `swift run flatline scan`.
+
+# FlatlineCore, FlatlineSwift, FlatlineProject and IndexStore are library products.
+retain_public: true
+
+# The fixtures contain unused code on purpose.
+index_exclude:
+  - Tests/Fixtures/**

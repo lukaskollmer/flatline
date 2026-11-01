@@ -178,9 +178,4 @@ public final class SourceGraph {
     public func referencedDeclarations(from id: Declaration.ID) -> [Declaration.ID] {
         references[id]
     }
-
-    /// Walks up the parent chain, nearest first.
-    public func ancestors(of id: Declaration.ID) -> some Sequence<Declaration.ID> {
-        sequence(first: id) { [declarations] in declarations[$0].parent }.dropFirst()
-    }
 }

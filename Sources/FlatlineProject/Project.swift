@@ -11,7 +11,6 @@ public struct PreparedProject: Sendable {
 }
 
 public protocol ProjectDriver: Sendable {
-    var root: String { get }
     func prepare(configuration: Configuration, logger: Logger) throws -> PreparedProject
 }
 
@@ -108,15 +107,10 @@ enum IndexStoreLocator {
         return FileManager.default.fileExists(atPath: path + "/v5/units", isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    /// The most recently updated of the candidate stores.
-    static func newest(of candidates: [String]) -> String? {
-        candidates
-            .filter(isIndexStore)
-            .max { modificationDate(of: $0) < modificationDate(of: $1) }
-    }
-
-    private static func modificationDate(of store: String) -> Date {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: store + "/v5/units")
-        return attributes?[.modificationDate] as? Date ?? .distantPast
+    /// The candidates that are index stores. Builds can write to several
+    /// (Swift Build uses different stores for `swift build` and `swift test`),
+    /// so all are read and the newest unit of each file wins.
+    static func existing(_ candidates: [String]) -> [String] {
+        candidates.filter(isIndexStore)
     }
 }

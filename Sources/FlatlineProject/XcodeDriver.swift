@@ -55,10 +55,10 @@ public struct XcodeDriver: ProjectDriver {
             stores = configuration.indexStorePath.map { Paths.absolute($0, base: root) }
         } else {
             let candidates = ["\(derivedData)/Index.noindex/DataStore", "\(derivedData)/Index/DataStore"]
-            guard let store = IndexStoreLocator.newest(of: candidates) else {
+            stores = IndexStoreLocator.existing(candidates)
+            guard !stores.isEmpty else {
                 throw FlatlineError("could not find an index store in \(derivedData). Pass --index-store-path.")
             }
-            stores = [store]
         }
         return PreparedProject(root: root, indexStorePaths: stores, testModules: [])
     }
@@ -85,7 +85,6 @@ public struct XcodeDriver: ProjectDriver {
 
     struct List: Decodable {
         struct Container: Decodable {
-            let name: String
             let schemes: [String]?
         }
 

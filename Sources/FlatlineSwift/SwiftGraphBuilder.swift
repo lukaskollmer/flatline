@@ -380,10 +380,6 @@ final class SwiftGraphBuilder {
         }
     }
 
-    func markRuleRetained(_ id: Declaration.ID) {
-        ruleRetained.insert(id)
-    }
-
     /// Supertypes of a type, including those inherited through protocols and
     /// classes in the project.
     func allSupertypes(of id: Declaration.ID, throughClasses: Bool) -> Set<InheritedType> {

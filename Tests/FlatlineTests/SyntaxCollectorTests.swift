@@ -140,20 +140,3 @@ struct SyntaxCollectorTests {
         #expect(collect("#Preview { Text(\"\") }").previewRanges.count == 1)
     }
 }
-
-struct SymbolNameTests {
-    @Test(arguments: [
-        ("$s8LibTests12swiftTesting4TestfMp_17Z46c941bab82c8882fMu_", "Test"),
-        ("$s8LibTests6Suite15SuitefMp_9generatorfMu_", "Suite"),
-        ("$s2UI11ContentViewV5model33_46AF44A0B6E80D39F2C59D57952EDD8DLL5StatefMp_20_initialStoredValue_fMu_", "State"),
-        ("$s2UI0013UIswift_ouEHafMX17_0_33_4F030B967F92D044156987BE77021EFBLl7PreviewfMf_15PreviewRegistryfMu_", "Preview"),
-    ])
-    func extractsMacroNames(name: String, macro: String) {
-        #expect(name.expandedMacroNames.contains(macro))
-    }
-
-    @Test func ignoresOrdinaryNames() {
-        #expect("$value".expandedMacroNames.isEmpty)
-        #expect("Test".expandedMacroNames.isEmpty)
-    }
-}

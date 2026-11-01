@@ -48,8 +48,4 @@ public struct SourceRange: Hashable, Sendable {
     public func contains(_ position: Position) -> Bool {
         start <= position && position < end
     }
-
-    public func contains(_ other: SourceRange) -> Bool {
-        start <= other.start && other.end <= end
-    }
 }
