@@ -333,7 +333,7 @@ final class SwiftGraphBuilder {
         for (id, bases) in overrides {
             for base in bases {
                 guard let baseID = resolve(base), baseID != id else {
-                    retainWithOwner(id, rule: "implements or overrides an external declaration")
+                    retainWithOwner(id, rule: "it implements or overrides an external declaration")
                     continue
                 }
                 overriddenBy[baseID, default: []].append(id)
@@ -349,7 +349,7 @@ final class SwiftGraphBuilder {
                 graph.retain(
                     id,
                     when: requirements,
-                    rule: isRequirement ? "implements a used protocol requirement" : "overrides a used declaration"
+                    rule: isRequirement ? "it implements a used protocol requirement" : "it overrides a used declaration"
                 )
             }
         }

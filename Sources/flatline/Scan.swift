@@ -114,7 +114,7 @@ struct Scan: ParsableCommand {
     @Option(help: "Don't analyze files matching these globs at all.")
     var indexExclude: [String] = []
 
-    @Option(help: "Output format: \(OutputFormat.allCases.map(\.rawValue).joined(separator: ", ")).")
+    @Option(help: "Output format.")
     var format: OutputFormat?
 
     @Flag(inversion: .prefixedNo, help: "Print paths relative to the project root.")
@@ -220,9 +220,9 @@ struct Scan: ParsableCommand {
         } else {
             let counts = Dictionary(grouping: findings, by: \.kind).mapValues(\.count)
             let summary = Finding.Kind.allCases.compactMap { kind in
-                counts[kind].map { "\($0) \(kind.summaryName)" }
+                counts[kind].map { "\($0) \(kind.summaryName(count: $0))" }
             }.joined(separator: ", ")
-            logger.info("Found \(findings.count) results: \(summary) (\(duration)s)")
+            logger.info("Found \(findings.count) result\(findings.count == 1 ? "" : "s"): \(summary) (\(duration)s)")
         }
         return findings.count
     }
@@ -283,12 +283,13 @@ struct Scan: ParsableCommand {
 }
 
 extension Finding.Kind {
-    var summaryName: String {
-        switch self {
+    func summaryName(count: Int) -> String {
+        let plural = count != 1
+        return switch self {
         case .unused: "unused"
-        case .redundantProtocol: "redundant protocols"
-        case .assignOnlyProperty: "assign-only properties"
-        case .unusedParameter: "unused parameters"
+        case .redundantProtocol: plural ? "redundant protocols" : "redundant protocol"
+        case .assignOnlyProperty: plural ? "assign-only properties" : "assign-only property"
+        case .unusedParameter: plural ? "unused parameters" : "unused parameter"
         case .redundantPublicAccessibility: "redundant public"
         }
     }
