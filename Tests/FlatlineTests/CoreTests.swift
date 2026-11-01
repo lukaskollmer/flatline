@@ -181,7 +181,7 @@ struct ProjectDetectionTests {
             let path = directory + "/" + entry
             if entry.hasSuffix(".swift") {
                 try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
-                FileManager.default.createFile(atPath: path, contents: Data())
+                _ = FileManager.default.createFile(atPath: path, contents: Data())
             } else {
                 try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
             }

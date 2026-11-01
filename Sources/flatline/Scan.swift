@@ -165,7 +165,7 @@ struct Scan: ParsableCommand {
     private func scan(configuration: Configuration, workingDirectory: String, logger: Logger) throws -> Int {
         let start = Date()
         let kind = try ProjectDetector.detect(configuration: configuration, directory: workingDirectory)
-        let driver = ProjectDetector.driver(for: kind, workingDirectory: workingDirectory)
+        let driver = ProjectDetector.driver(for: kind, configuration: configuration, workingDirectory: workingDirectory)
         let project = try driver.prepare(configuration: configuration, logger: logger)
         let root = Paths.canonical(project.root)
 

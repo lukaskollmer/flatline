@@ -3,18 +3,34 @@ import Foundation
 
 /// Builds Xcode schemes with `xcodebuild` and reads the index store from derived data.
 public struct XcodeDriver: ProjectDriver {
+    public enum Kind: Sendable {
+        case workspace
+        case project
+        /// A Swift package built with xcodebuild, e.g. one that only supports iOS.
+        case package
+    }
+
     public let path: String
-    public let isWorkspace: Bool
+    public let kind: Kind
     public let root: String
 
-    public init(path: String, isWorkspace: Bool, root: String) {
+    public init(path: String, kind: Kind, root: String) {
         self.path = path
-        self.isWorkspace = isWorkspace
+        self.kind = kind
         self.root = root
     }
 
     private var projectArguments: [String] {
-        [isWorkspace ? "-workspace" : "-project", path]
+        switch kind {
+        case .workspace: ["-workspace", path]
+        case .project: ["-project", path]
+        case .package: []
+        }
+    }
+
+    /// xcodebuild finds a package's manifest in the current directory.
+    private var buildDirectory: String {
+        kind == .package ? path : root
     }
 
     public func prepare(configuration: Configuration, logger: Logger) throws -> PreparedProject {
@@ -78,7 +94,7 @@ public struct XcodeDriver: ProjectDriver {
     }
 
     func availableSchemes() throws -> [String] {
-        let result = try Shell.runChecked("xcodebuild", ["-list", "-json"] + projectArguments, in: root)
+        let result = try Shell.runChecked("xcodebuild", ["-list", "-json"] + projectArguments, in: buildDirectory)
         guard let start = result.output.firstIndex(of: "{") else { return [] }
         let list = try JSONDecoder().decode(List.self, from: Data(result.output[start...].utf8))
         return (list.workspace ?? list.project)?.schemes ?? []
@@ -119,6 +135,18 @@ public struct XcodeDriver: ProjectDriver {
         arguments += configuration.buildArguments
         logger.info("Building scheme \(scheme)")
         logger.debug("xcodebuild \(arguments.joined(separator: " "))")
-        try Shell.runChecked("xcodebuild", arguments, in: root, passthrough: logger.level >= .verbose)
+        do {
+            try Shell.runChecked("xcodebuild", arguments, in: buildDirectory, passthrough: logger.level >= .verbose)
+        } catch let error as FlatlineError where error.description.contains("must be enabled before it can be used") {
+            throw FlatlineError(
+                error.description + "\nxcodebuild requires package macros and plugins to be trusted first, "
+                    + "e.g. by building the project once in Xcode."
+            )
+        } catch let error as FlatlineError where error.description.contains("a destination is provided") {
+            throw FlatlineError(
+                error.description + "\nPass a destination after `--`, e.g. "
+                    + "flatline scan --schemes \(scheme) -- -destination 'generic/platform=iOS Simulator'"
+            )
+        }
     }
 }

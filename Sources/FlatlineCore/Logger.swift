@@ -18,7 +18,7 @@ public struct Logger: Sendable {
 
     public init(level: Level = .normal) {
         self.level = level
-        colors = isatty(fileno(stderr)) != 0 && ProcessInfo.processInfo.environment["NO_COLOR"] == nil
+        colors = isatty(STDERR_FILENO) != 0 && ProcessInfo.processInfo.environment["NO_COLOR"] == nil
     }
 
     public func info(_ message: @autoclosure () -> String) {

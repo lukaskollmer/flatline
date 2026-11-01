@@ -68,7 +68,7 @@ enum Fixtures {
         configuration.schemes = ["App"]
         configuration.derivedDataPath = buildDirectory("XcodeProject")
         let directory = path("XcodeProject")
-        let driver = XcodeDriver(path: directory + "/FixtureApp.xcodeproj", isWorkspace: false, root: directory)
+        let driver = XcodeDriver(path: directory + "/FixtureApp.xcodeproj", kind: .project, root: directory)
         return try driver.prepare(configuration: configuration, logger: Logger(level: .quiet))
     }
     #endif

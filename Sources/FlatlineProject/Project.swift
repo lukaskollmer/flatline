@@ -58,14 +58,22 @@ public enum ProjectDetector {
         )
     }
 
-    public static func driver(for kind: ProjectKind, workingDirectory: String) -> any ProjectDriver {
+    /// Swift packages are built with `swift build`, unless schemes are
+    /// configured: then with `xcodebuild`, which can build for iOS.
+    public static func driver(
+        for kind: ProjectKind,
+        configuration: Configuration,
+        workingDirectory: String
+    ) -> any ProjectDriver {
         switch kind {
+        case let .swiftPackage(directory) where !configuration.schemes.isEmpty:
+            XcodeDriver(path: directory, kind: .package, root: directory)
         case let .swiftPackage(directory):
             SwiftPackageDriver(directory: directory)
         case let .xcodeWorkspace(path):
-            XcodeDriver(path: path, isWorkspace: true, root: root(for: path, workingDirectory: workingDirectory))
+            XcodeDriver(path: path, kind: .workspace, root: root(for: path, workingDirectory: workingDirectory))
         case let .xcodeProject(path):
-            XcodeDriver(path: path, isWorkspace: false, root: root(for: path, workingDirectory: workingDirectory))
+            XcodeDriver(path: path, kind: .project, root: root(for: path, workingDirectory: workingDirectory))
         case let .indexStore(root):
             IndexStoreDriver(root: root)
         }
