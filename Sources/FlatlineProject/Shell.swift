@@ -46,7 +46,9 @@ public enum Shell {
         // The readers get threads of their own: callers (e.g. tests on Swift
         // concurrency's thread pool) block while waiting for them, and once as
         // many callers as there are cores block, GCD starts no threads for its
-        // global queues, so readers queued there would never run.
+        // global queues, so readers queued there would never run. Private serial
+        // queues and readabilityHandler do still get a thread today, but GCD
+        // doesn't document that; a Thread is the only option guaranteed to run.
         let collected = Collected()
         let group = DispatchGroup()
         if !passthrough {
