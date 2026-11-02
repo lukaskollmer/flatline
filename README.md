@@ -31,25 +31,16 @@ On Apple silicon Macs, install a prebuilt binary with Homebrew:
 brew install lukaskollmer/formulae/flatline
 ```
 
-Or build it from a checkout of this repository. On macOS, go through `xcrun` so
-the selected Xcode's toolchain builds it, not whichever `swift` comes first on
-`PATH` (e.g. a swiftly or swift.org toolchain, which may not match the SDK):
+Or build it from a checkout of this repository.
 
 ```bash
-xcrun swift build -c release
-```
-
-On Linux:
-
-```bash
+# build the package
 swift build -c release
-```
 
-Then put the binary on your `PATH`:
-
-```bash
+# add it to your $PATH
 cp .build/release/flatline /usr/local/bin/
 ```
+
 
 On macOS, flatline uses the toolchain of the selected Xcode (`xcrun`), so it
 honors `xcode-select`, `DEVELOPER_DIR` and `TOOLCHAINS`.
@@ -313,7 +304,7 @@ Differences:
 
 ## Limitations
 
-flatline sees what the compiler indexed in one build. Like Periphery, it can't
+flatline sees what the compiler indexed in one build. It can't
 know about:
 
 - Code in inactive `#if` branches (other platforms, configurations or package
