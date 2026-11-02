@@ -1,0 +1,87 @@
+name: Release
+
+# Publishing a GitHub release builds flatline for Apple silicon, attaches the
+# binary to the release, and updates the formula in
+# lukaskollmer/homebrew-formulae. Running the workflow by hand redoes this for
+# the latest release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and upload binaries
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    outputs:
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - name: Find the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        # Without a tag (when run by hand), gh picks the latest release.
+        run: |
+          gh release view ${TAG:+"$TAG"} --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isPrerelease \
+            --jq '"tag=\(.tagName)\nversion=\(.tagName | ltrimstr("v"))\nprerelease=\(.isPrerelease)"' \
+            >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+      - name: Check that the version matches the tag
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if ! grep -q "static let version = \"$VERSION\"" Sources/flatline/Flatline.swift; then
+            echo "::error file=Sources/flatline/Flatline.swift::Flatline.version isn't $VERSION, the version of this release"
+            exit 1
+          fi
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun swift --version
+      # Homebrew Releaser expects <repo>-<version>-darwin-<arch>.tar.gz.
+      - name: Build
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          xcrun swift build -c release --arch arm64 --product flatline
+          tar -czf "flatline-$VERSION-darwin-arm64.tar.gz" \
+            -C "$(xcrun swift build -c release --arch arm64 --show-bin-path)" flatline
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: gh release upload "$TAG" flatline-*.tar.gz --clobber
+
+  homebrew:
+    name: Update Homebrew formula
+    needs: build
+    # Homebrew Releaser always releases the latest release, which is never a
+    # prerelease.
+    if: needs.build.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Justintime50/homebrew-releaser@v4
+        with:
+          homebrew_owner: lukaskollmer
+          homebrew_tap: homebrew-formulae
+          formula_folder: Formula
+          # Needs write access to this repository (to upload checksum.txt to
+          # the release) and to lukaskollmer/homebrew-formulae.
+          github_token: ${{ secrets.GH_PAT }}
+          commit_owner: lukaskollmer
+          commit_email: gh@lukaskollmer.de
+          # There's no Intel binary.
+          depends_on: 'arch: :arm64'
+          install: 'bin.install "flatline"'
+          test: 'assert_match version.to_s, shell_output("#{bin}/flatline --version")'
+          target_darwin_arm64: true
+          update_readme_table: true

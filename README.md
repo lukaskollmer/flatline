@@ -25,7 +25,13 @@ flatline needs a Swift 6 toolchain: Xcode 16 or later on macOS, or a
 with the latest stable Swift: the newest stable Xcode on macOS, and the
 `swift:latest` image on Linux.
 
-Build it from a checkout of this repository. On macOS, go through `xcrun` so
+On Apple silicon Macs, install a prebuilt binary with Homebrew:
+
+```bash
+brew install lukaskollmer/formulae/flatline
+```
+
+Or build it from a checkout of this repository. On macOS, go through `xcrun` so
 the selected Xcode's toolchain builds it, not whichever `swift` comes first on
 `PATH` (e.g. a swiftly or swift.org toolchain, which may not match the SDK):
 
@@ -382,3 +388,13 @@ flatline dump-index --index-store-path .build/out MyFile.swift
 ```
 
 flatline runs on itself: `xcrun swift run flatline scan` (configured in `.flatline.yml`).
+
+### Releasing
+
+Set `version` in `Sources/flatline/Flatline.swift`, then publish a GitHub
+release whose tag is that version (`0.2.0` or `v0.2.0`). The release workflow
+builds flatline for Apple silicon, attaches the binary to the release, and
+updates the formula in
+[lukaskollmer/homebrew-formulae](https://github.com/lukaskollmer/homebrew-formulae).
+It needs a `GH_PAT` secret: a token with write access to this repository and
+the tap.
