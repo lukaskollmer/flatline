@@ -65,6 +65,9 @@ public struct Configuration: Codable, Sendable, Equatable {
 
     public var disableUnusedParameterAnalysis: Bool = false
     public var disableRedundantPublicAnalysis: Bool = false
+    public var disableUnusedImportAnalysis: Bool = false
+    /// Modules whose imports are never reported as unused.
+    public var retainUnusedImportedModules: [String] = []
 
     // MARK: Reporting
 
@@ -126,6 +129,8 @@ public struct Configuration: Codable, Sendable, Equatable {
         case externalTestCaseClasses = "external_test_case_classes"
         case disableUnusedParameterAnalysis = "disable_unused_parameter_analysis"
         case disableRedundantPublicAnalysis = "disable_redundant_public_analysis"
+        case disableUnusedImportAnalysis = "disable_unused_import_analysis"
+        case retainUnusedImportedModules = "retain_unused_imported_modules"
         case reportExclude = "report_exclude"
         case reportInclude = "report_include"
         case indexExclude = "index_exclude"
@@ -182,6 +187,8 @@ public struct Configuration: Codable, Sendable, Equatable {
         externalTestCaseClasses = try list(.externalTestCaseClasses, defaults.externalTestCaseClasses)
         disableUnusedParameterAnalysis = try value(.disableUnusedParameterAnalysis, defaults.disableUnusedParameterAnalysis)
         disableRedundantPublicAnalysis = try value(.disableRedundantPublicAnalysis, defaults.disableRedundantPublicAnalysis)
+        disableUnusedImportAnalysis = try value(.disableUnusedImportAnalysis, defaults.disableUnusedImportAnalysis)
+        retainUnusedImportedModules = try list(.retainUnusedImportedModules, defaults.retainUnusedImportedModules)
         reportExclude = try list(.reportExclude, defaults.reportExclude)
         reportInclude = try list(.reportInclude, defaults.reportInclude)
         indexExclude = try list(.indexExclude, defaults.indexExclude)
@@ -223,6 +230,8 @@ public struct Configuration: Codable, Sendable, Equatable {
         try c.encode(externalTestCaseClasses, forKey: .externalTestCaseClasses)
         try c.encode(disableUnusedParameterAnalysis, forKey: .disableUnusedParameterAnalysis)
         try c.encode(disableRedundantPublicAnalysis, forKey: .disableRedundantPublicAnalysis)
+        try c.encode(disableUnusedImportAnalysis, forKey: .disableUnusedImportAnalysis)
+        try c.encode(retainUnusedImportedModules, forKey: .retainUnusedImportedModules)
         try c.encode(reportExclude, forKey: .reportExclude)
         try c.encode(reportInclude, forKey: .reportInclude)
         try c.encode(indexExclude, forKey: .indexExclude)

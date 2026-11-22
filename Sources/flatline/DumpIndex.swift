@@ -1,5 +1,4 @@
 import ArgumentParser
-import FlatlineCore
 import FlatlineProject
 import Foundation
 import IndexStore

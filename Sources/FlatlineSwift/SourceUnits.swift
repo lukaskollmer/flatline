@@ -17,6 +17,16 @@ public struct SourceUnit: Sendable {
     let recordName: String
 }
 
+/// The units chosen from index stores.
+public struct UnitSelection: Sendable {
+    /// The project files to analyze.
+    public var units: [SourceUnit]
+    /// Other files compiled into the project's modules: generated sources, or
+    /// files excluded with `index_exclude`. They aren't analyzed; their
+    /// declarations only tell which module a referenced declaration is in.
+    public var auxiliaryUnits: [SourceUnit]
+}
+
 /// Chooses the units of index stores that belong to the project.
 ///
 /// An index store accumulates units across builds, so it can hold several
@@ -40,10 +50,18 @@ public struct UnitSelector: Sendable {
 
     /// `variants` holds the index stores of each build variant;
     /// `SourceUnit.storeIndex` indexes into them flattened.
-    public func select(from variants: [[IndexStore]], logger: Logger) throws -> [SourceUnit] {
+    public func select(from variants: [[IndexStore]], logger: Logger) throws -> UnitSelection {
         let root = Paths.canonical(projectRoot)
-        var candidates: [String: (unit: IndexUnit, store: Int, file: String)] = [:]
-        var canonicalPaths: [String: String?] = [:]
+        typealias Candidate = (unit: IndexUnit, store: Int, file: String)
+        var candidates: [String: Candidate] = [:]
+        var otherCandidates: [String: Candidate] = [:]
+        var classifications: [String: FileClass] = [:]
+        func keepNewest(_ candidates: inout [String: Candidate], _ key: String, _ candidate: Candidate) {
+            if let existing = candidates[key], existing.unit.modificationTime >= candidate.unit.modificationTime {
+                return
+            }
+            candidates[key] = candidate
+        }
 
         let stores = variants.enumerated().flatMap { variant, stores in stores.map { (variant, $0) } }
         for (storeIndex, (variant, store)) in stores.enumerated() {
@@ -60,19 +78,27 @@ public struct UnitSelector: Sendable {
                       !excludedModules.contains(unit.moduleName)
                 else { continue }
 
-                let resolved = canonicalPaths[mainFile] ?? {
+                let classification = classifications[mainFile] ?? {
                     let path = Paths.canonical(mainFile)
-                    let keep = FileManager.default.fileExists(atPath: path) && isProjectFile(path, root: root)
-                    canonicalPaths[mainFile] = keep ? path : nil
-                    return keep ? path : nil
+                    let result: FileClass = !FileManager.default.fileExists(atPath: path)
+                        ? .missing
+                        : isProjectFile(path, root: root) ? .project(path) : .other(path)
+                    classifications[mainFile] = result
+                    return result
                 }()
-                guard let file = resolved else { continue }
-
-                let key = "\(variant)\u{0}\(unit.moduleName)\u{0}\(file)"
-                if let existing = candidates[key], existing.unit.modificationTime >= unit.modificationTime {
+                let file: String
+                switch classification {
+                case .missing:
                     continue
+                case let .project(path), let .other(path):
+                    file = path
                 }
-                candidates[key] = (unit, storeIndex, file)
+                let key = "\(variant)\u{0}\(unit.moduleName)\u{0}\(file)"
+                if case .project = classification {
+                    keepNewest(&candidates, key, (unit, storeIndex, file))
+                } else {
+                    keepNewest(&otherCandidates, key, (unit, storeIndex, file))
+                }
             }
         }
 
@@ -91,7 +117,6 @@ public struct UnitSelector: Sendable {
             }
         }
 
-        var units: [SourceUnit] = []
         var heuristicTestModules: Set<String> = []
         for (unit, _, _) in candidates.values where unit.dependencies.contains(where: {
             $0.moduleName == "XCTest" || $0.moduleName == "Testing"
@@ -102,22 +127,37 @@ public struct UnitSelector: Sendable {
 
         // Variants that compiled a file identically share its record; read it once.
         var seenRecords: Set<String> = []
-        for (unit, storeIndex, file) in candidates.values {
-            let isTest = testModules.contains(unit.moduleName)
-            if excludeTests, isTest { continue }
-            guard let record = unit.dependencies.first(where: {
-                $0.kind == .record && Paths.canonical($0.filePath) == file
-            }) ?? unit.dependencies.first(where: { $0.kind == .record }) else { continue }
-            guard seenRecords.insert("\(unit.moduleName)\u{0}\(file)\u{0}\(record.name)").inserted else { continue }
-            units.append(SourceUnit(
-                file: file,
-                module: unit.moduleName,
-                language: unit.providerIdentifier == "swift" ? .swift : .clang,
-                storeIndex: storeIndex,
-                recordName: record.name
-            ))
+        func sourceUnits(_ candidates: some Sequence<Candidate>) -> [SourceUnit] {
+            var units: [SourceUnit] = []
+            for (unit, storeIndex, file) in candidates {
+                guard let record = unit.dependencies.first(where: {
+                    $0.kind == .record && Paths.canonical($0.filePath) == file
+                }) ?? unit.dependencies.first(where: { $0.kind == .record }) else { continue }
+                guard seenRecords.insert("\(unit.moduleName)\u{0}\(file)\u{0}\(record.name)").inserted else { continue }
+                units.append(SourceUnit(
+                    file: file,
+                    module: unit.moduleName,
+                    language: unit.providerIdentifier == "swift" ? .swift : .clang,
+                    storeIndex: storeIndex,
+                    recordName: record.name
+                ))
+            }
+            return units.sorted { ($0.file, $0.module, $0.storeIndex) < ($1.file, $1.module, $1.storeIndex) }
         }
-        return units.sorted { ($0.file, $0.module, $0.storeIndex) < ($1.file, $1.module, $1.storeIndex) }
+
+        let units = sourceUnits(candidates.values.filter { !(excludeTests && testModules.contains($0.unit.moduleName)) })
+        // Files outside the project, generated or excluded, that are compiled
+        // into its modules (e.g. resource accessors or plugin output).
+        let projectModules = Set(units.map(\.module))
+        let auxiliaryUnits = sourceUnits(otherCandidates.values.filter { projectModules.contains($0.unit.moduleName) })
+        return UnitSelection(units: units, auxiliaryUnits: auxiliaryUnits)
+    }
+
+    private enum FileClass {
+        case project(String)
+        /// Exists, but isn't a project file to analyze.
+        case other(String)
+        case missing
     }
 
     private func isProjectFile(_ path: String, root: String) -> Bool {

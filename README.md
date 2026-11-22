@@ -11,7 +11,8 @@ Sources/Feed/FeedLoader.swift:48:10: warning: Method 'prefetch(_:)' is unused
 Sources/Feed/FeedItem.swift:12:9: warning: Property 'legacyID' is assigned, but never read
 Sources/Core/Formatting.swift:31:30: warning: Parameter 'locale' is unused
 Sources/Core/Theme.swift:5:10: warning: Protocol 'Themable' is redundant: it is conformed to, but never used
-* Found 4 results: 1 unused, 1 redundant protocol, 1 assign-only property, 1 unused parameter (21.3s)
+Sources/Feed/FeedView.swift:3:1: warning: Import 'Networking' is unused
+* Found 5 results: 1 unused, 1 redundant protocol, 1 assign-only property, 1 unused parameter, 1 unused import (21.3s)
 ```
 
 flatline replaces [Periphery](https://github.com/peripheryapp/periphery) for
@@ -128,6 +129,7 @@ Class 'FeedLoader' at Sources/Feed/FeedLoader.swift:8:13
 | `assignOnlyProperty` | `Property 'x' is assigned, but never read` | Stored properties without observers or property wrappers. |
 | `unusedParameter` | `Parameter 'y' is unused` | Skips overrides, protocol witnesses, `@objc` methods, functions passed as values, and stubs (empty or `fatalError()` bodies). |
 | `redundantPublicAccessibility` | `Method 'run()' is declared public, but not used outside of module 'Core'` | Off with `retain_public` or `disable_redundant_public_analysis`. |
+| `unusedImport` | `Import 'Networking' is unused` | Only imports of the project's own modules. See [Unused imports](#unused-imports). |
 
 ### What counts as used
 
@@ -165,6 +167,44 @@ everything reachable from it. These are the starting points and rules:
   `@available(*, unavailable)` declarations.
 - **Libraries:** `public` and `open` declarations with `retain_public`.
 
+### Unused imports
+
+An import is unused when nothing in the file uses the imported module. flatline
+reports imports of the project's own modules: for the SDK and other
+dependencies, the index doesn't say which module a declaration comes from.
+
+A module counts as used by a file when the file:
+
+- refers to one of its declarations, including operators, string
+  interpolations, property wrappers, result builders and default
+  implementations of protocol requirements;
+- refers to a declaration of a module it re-exports with `@_exported import`;
+- names a type, or uses a member of a type, that the module adds a
+  conformance to (`extension Color: CustomStringConvertible`). The index
+  doesn't record uses of conformances.
+
+These imports aren't reported:
+
+- `@_exported` imports, and imports in inactive `#if` branches.
+- Imports of a module that re-exports a module outside the project, e.g.
+  `@_exported import Foundation`, unless the file imports that module too:
+  its uses can't be seen.
+- Imports that another file of the same module depends on. Once one file
+  imports a module, Swift makes its extension members and conformances visible
+  in every file of the module. If a file uses them without importing the
+  module, removing the import from the other files would break it.
+- Imports of modules listed in `retain_unused_imported_modules`, and imports
+  marked with `// flatline:ignore`.
+
+Imports of single declarations (`import struct Core.Theme`) are unused when the
+file uses neither the declaration nor its members.
+
+A file can rely on a conformance without naming the type, e.g. through a value
+whose type is inferred. If another file of the module imports the module that
+adds the conformance, removing the import still compiles. If not, keep it with
+`// flatline:ignore`. As with declarations, uses in inactive `#if` branches
+aren't seen; analyze those configurations as [build variants](#build-variants-traits-platforms-configurations).
+
 ## Comment commands
 
 ```swift
@@ -173,6 +213,9 @@ func calledThroughReflection() {}        // not reported, and treated as used
 
 // flatline:ignore:parameters event, context
 func handle(event: Event, context: Context) {}
+
+// flatline:ignore
+import Analytics                         // an import that isn't reported
 
 // flatline:ignore:all                   // anywhere in a file: ignore the whole file
 ```
@@ -231,6 +274,8 @@ strict: true
 | `external_test_case_classes` | | External test base classes, besides `XCTestCase`. |
 | `disable_unused_parameter_analysis` | `false` | Don't report unused parameters. |
 | `disable_redundant_public_analysis` | `false` | Don't report redundant `public`. |
+| `disable_unused_import_analysis` | `false` | Don't report unused imports. |
+| `retain_unused_imported_modules` | | Modules whose imports are never reported as unused. |
 | `report_exclude` / `report_include` | | Globs of files to leave out of / limit results to. |
 | `index_exclude` | | Globs of files to ignore entirely; their references don't count. |
 | `format` | `xcode` | `xcode`, `json`, `csv`, `checkstyle`, `github-actions`, `codeclimate`. |
@@ -258,7 +303,8 @@ flatline scan --write-baseline .flatline-baseline.json
 flatline scan --baseline .flatline-baseline.json --strict
 ```
 
-Baselines identify results by USR, so they survive code moving around.
+Baselines identify results by USR (unused imports by file name and module),
+so they survive code moving around.
 
 On GitHub Actions, `--format github-actions` annotates pull requests:
 
@@ -298,8 +344,10 @@ Differences:
   called on the enum, not unconditionally.
 - **Synthesized `Equatable`/`Hashable`:** stored properties of such structs
   aren't reported, because the synthesized `==` and `hash(into:)` read them.
-- **Not supported:** Bazel projects, unused import analysis, and the
-  `setup` guide. Unsupported Periphery options in `.periphery.yml` are
+- **Unused imports:** imports that another file of the module depends on, or
+  that may provide a conformance the file uses, aren't reported (see
+  [Unused imports](#unused-imports)).
+- **Not supported:** Bazel projects and the `setup` guide. Unsupported Periphery options in `.periphery.yml` are
   ignored with a note in `--verbose` output.
 
 ## Limitations
@@ -324,14 +372,15 @@ know about:
    runtime (`dlopen`), so one binary works with any Swift version, and reads
    the units and records of the project's files in parallel.
 3. **Parse the sources.** SwiftSyntax supplies what the index lacks:
-   attributes, modifiers, accessibility, comment commands, parameter usage and
-   declaration ranges.
+   attributes, modifiers, accessibility, comment commands, parameter usage,
+   imports and declaration ranges.
 4. **Build a graph.** Declarations are nodes; "A's body or signature refers to
    B" is an edge. Members keep their type alive, extensions keep their
    extended type alive, and conditional edges model dynamic dispatch (a
    witness is used once its requirement and its type are used).
 5. **Mark and report.** Everything reachable from the roots is used; the rest
-   is reported.
+   is reported. Separately, each file's references are attributed to the
+   modules that declare them, to find its unused imports.
 
 ### Code layout
 
@@ -365,7 +414,8 @@ that there; every unmarked result fails the test. To cover a new case, add the
 code and its marker to a fixture.
 
 - `Tests/Fixtures/SwiftPackage`: a package with a library, an executable,
-  tests, and a macOS-only target (SwiftUI, Objective-C).
+  tests, a macOS-only target (SwiftUI, Objective-C), and modules that import
+  each other (`Shapes`, `ShapeExtras`, `ShapeKit`, `Imports`, `ImportLeaks`).
 - `Tests/Fixtures/PackageTraits`: a package with code behind a trait, for
   build variants.
 - `Tests/Fixtures/XcodeProject`: a macOS app with tests and a local package.

@@ -113,6 +113,12 @@ struct Scan: ParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Don't report public declarations that are only used in their own module.")
     var disableRedundantPublicAnalysis: Bool?
 
+    @Flag(inversion: .prefixedNo, help: "Don't report unused imports.")
+    var disableUnusedImportAnalysis: Bool?
+
+    @Option(help: "Modules whose imports are never reported as unused.")
+    var retainUnusedImportedModules: [String] = []
+
     // MARK: Reporting
 
     @Option(help: "Don't report results in files matching these globs.")
@@ -291,6 +297,8 @@ struct Scan: ParsableCommand {
         set(\.externalTestCaseClasses, externalTestCaseClasses)
         set(\.disableUnusedParameterAnalysis, disableUnusedParameterAnalysis)
         set(\.disableRedundantPublicAnalysis, disableRedundantPublicAnalysis)
+        set(\.disableUnusedImportAnalysis, disableUnusedImportAnalysis)
+        set(\.retainUnusedImportedModules, retainUnusedImportedModules)
         set(\.reportExclude, reportExclude)
         set(\.reportInclude, reportInclude)
         set(\.indexExclude, indexExclude)
@@ -314,6 +322,7 @@ extension Finding.Kind {
         case .assignOnlyProperty: plural ? "assign-only properties" : "assign-only property"
         case .unusedParameter: plural ? "unused parameters" : "unused parameter"
         case .redundantPublicAccessibility: "redundant public"
+        case .unusedImport: plural ? "unused imports" : "unused import"
         }
     }
 }

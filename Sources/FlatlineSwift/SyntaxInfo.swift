@@ -68,9 +68,29 @@ struct DeclarationSyntaxInfo: Sendable {
     }
 }
 
+/// An `import` declaration, in an active `#if` branch or not.
+struct ImportSyntaxInfo: Sendable {
+    /// `Module`, or `Module.Declaration` for an import of a single declaration.
+    let path: [String]
+    /// Where the index records the reference to the module.
+    let modulePosition: Position
+    /// From the first attribute to the end of the declaration.
+    let range: SourceRange
+    /// `struct`, `func`, … for an import of a single declaration.
+    let kind: String?
+    let attributes: Set<String>
+    let commands: Set<CommentCommand>
+
+    var module: String { path[0] }
+    var name: String { path.joined(separator: ".") }
+    var isExported: Bool { attributes.contains("_exported") }
+    var isIgnored: Bool { commands.contains(.ignore) }
+}
+
 struct FileSyntaxInfo: Sendable {
     let path: String
     var declarations: [Position: DeclarationSyntaxInfo] = [:]
+    var imports: [ImportSyntaxInfo] = []
     /// Declarations ordered by start, to find the innermost one around a position.
     var scopes: [DeclarationSyntaxInfo] = []
     /// The file contains statements outside of declarations (main.swift, scripts).

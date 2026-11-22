@@ -9,6 +9,12 @@ var targets: [Target] = [
     .target(name: "Core"),
     .executableTarget(name: "App", dependencies: ["Core"]),
     .testTarget(name: "CoreTests", dependencies: ["Core"]),
+    // Unused imports: each file in Imports and ImportLeaks tests one case.
+    .target(name: "Shapes"),
+    .target(name: "ShapeExtras", dependencies: ["Shapes"]),
+    .target(name: "ShapeKit", dependencies: ["Shapes"]),
+    .executableTarget(name: "Imports", dependencies: ["Shapes", "ShapeExtras", "ShapeKit"]),
+    .executableTarget(name: "ImportLeaks", dependencies: ["Shapes", "ShapeExtras"]),
 ]
 
 #if os(macOS)

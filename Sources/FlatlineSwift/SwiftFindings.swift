@@ -8,14 +8,23 @@ struct ReportFilter {
     let exclude: [Glob]
 
     func includes(_ declaration: Declaration) -> Bool {
-        if !modules.isEmpty, declaration.modules.isDisjoint(with: modules) {
+        includes(file: declaration.location.file, modules: declaration.modules)
+    }
+
+    func includes(file: String, modules fileModules: Set<String>) -> Bool {
+        if !modules.isEmpty, fileModules.isDisjoint(with: modules) {
             return false
         }
-        let file = declaration.location.file
         if !include.isEmpty, !Glob.any(include, match: file, relativeTo: projectRoot) {
             return false
         }
         return !Glob.any(exclude, match: file, relativeTo: projectRoot)
+    }
+}
+
+extension Finding {
+    static func isInReportOrder(_ lhs: Finding, _ rhs: Finding) -> Bool {
+        (lhs.location, lhs.kind.rawValue, lhs.name) < (rhs.location, rhs.kind.rawValue, rhs.name)
     }
 }
 
@@ -35,7 +44,7 @@ extension SwiftGraphBuilder {
         if !configuration.retainPublic, !configuration.disableRedundantPublicAnalysis {
             findings += redundantPublicAccessibility(reportable: reportable)
         }
-        return findings.sorted { ($0.location, $0.kind.rawValue, $0.name) < ($1.location, $1.kind.rawValue, $1.name) }
+        return findings.sorted(by: Finding.isInReportOrder)
     }
 
     private func isReportable(_ declaration: Declaration, filter: ReportFilter) -> Bool {

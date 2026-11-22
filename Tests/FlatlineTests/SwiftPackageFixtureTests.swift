@@ -53,9 +53,10 @@ struct SwiftPackageFixtureTests {
             $0.retainAssignOnlyProperties = true
             $0.disableUnusedParameterAnalysis = true
             $0.disableRedundantPublicAnalysis = true
+            $0.disableUnusedImportAnalysis = true
         }
         let kinds = Set(findings.map(\.kind))
-        #expect(kinds.isDisjoint(with: [.assignOnlyProperty, .unusedParameter, .redundantPublicAccessibility]))
+        #expect(kinds.isDisjoint(with: [.assignOnlyProperty, .unusedParameter, .redundantPublicAccessibility, .unusedImport]))
         #expect(kinds.contains(.unused))
     }
 
@@ -101,6 +102,29 @@ struct SwiftPackageFixtureTests {
         // `notEncoded: Int` is declared with a type annotation; `lastUpdated = 0` is inferred.
         #expect(findings.named("notEncoded").isEmpty)
         #expect(findings.named("lastUpdated").map(\.kind) == [.assignOnlyProperty])
+    }
+
+    @Test func reportsUnusedImportsOfProjectModules() throws {
+        let imports = try fixture.findings().filter { $0.kind == .unusedImport }
+        let unused = try #require(imports.in("Unused.swift").first { $0.name == "Shapes" })
+        #expect(unused.declarationKind == .import)
+        #expect(unused.modules == ["Imports"])
+        #expect(unused.location.column == 1)
+        #expect(imports.named("Shapes.makeColor").count == 1)
+    }
+
+    @Test func retainedImportedModulesAreNotReported() throws {
+        let findings = try fixture.findings { $0.retainUnusedImportedModules = ["ShapeExtras"] }
+        let names = Set(findings.filter { $0.kind == .unusedImport }.map(\.name))
+        #expect(!names.contains("ShapeExtras"))
+        #expect(names.contains("Shapes"))
+    }
+
+    @Test func declarationsInExcludedFilesStillBelongToTheirModule() throws {
+        // Without the declarations of Palette.swift, `import Shapes` in Excluded.swift looks unused.
+        let findings = try fixture.findings { $0.indexExclude = ["Sources/Shapes/Palette.swift"] }
+        #expect(findings.in("Excluded.swift").isEmpty)
+        #expect(!findings.in("Unused.swift").isEmpty)
     }
 
     @Test func explainsRetention() throws {
