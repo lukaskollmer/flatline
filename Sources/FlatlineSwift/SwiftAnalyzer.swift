@@ -77,7 +77,7 @@ public struct SwiftAnalyzer: Sendable {
         let auxiliaryFiles = analyzesImports ? selection.auxiliaryUnits.concurrentMap(read) : []
 
         let swiftFiles = Array(Set(units.filter { $0.language == .swift }.map(\.file))).sorted()
-        let parsed = swiftFiles.concurrentMap { path -> FileSyntaxInfo? in
+        func parse(_ path: String) -> FileSyntaxInfo? {
             do {
                 return try SyntaxCollector.collect(path: path)
             } catch {
@@ -85,6 +85,7 @@ public struct SwiftAnalyzer: Sendable {
                 return nil
             }
         }
+        let parsed = swiftFiles.concurrentMap(parse)
         statistics.unparseableFiles = parsed.count { $0 == nil }
         let syntax = Dictionary(uniqueKeysWithValues: parsed.compactMap { $0.map { ($0.path, $0) } })
 
@@ -111,10 +112,13 @@ public struct SwiftAnalyzer: Sendable {
         )
         var findings = builder.findings(filter: filter)
         if analyzesImports {
+            // Generated and excluded files are parsed only for their imports.
+            let auxiliarySwiftFiles = Set(selection.auxiliaryUnits.filter { $0.language == .swift }.map(\.file))
+            let auxiliarySyntax = Array(auxiliarySwiftFiles).concurrentMap(parse).compactMap { $0 }
             let imports = ImportAnalysis(
                 builder: builder,
                 configuration: configuration,
-                syntax: syntax,
+                syntax: syntax.merging(auxiliarySyntax.map { ($0.path, $0) }) { first, _ in first },
                 files: Array(zip(units, files)),
                 auxiliaryFiles: Array(zip(selection.auxiliaryUnits, auxiliaryFiles))
             )

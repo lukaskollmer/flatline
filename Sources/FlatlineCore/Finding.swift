@@ -63,11 +63,10 @@ public struct Finding: Codable, Sendable, Hashable {
     }
 
     /// Identifies the finding across runs; stable when code moves around.
-    public var identifier: String {
+    public func identifier(projectRoot: String) -> String {
         if kind == .unusedImport {
-            // Imports have no USR. File names are unique within a module.
-            let fileName = location.file.split(separator: "/").last.map(String.init) ?? location.file
-            return "\(kind.rawValue)|\(modules.joined(separator: ","))|\(fileName)|\(name)"
+            // Imports have no USR; they're identified by their file.
+            return "\(kind.rawValue)|\(Paths.relative(location.file, to: projectRoot))|\(name)"
         }
         return "\(kind.rawValue)|\(usrs.joined(separator: ","))|\(name)"
     }

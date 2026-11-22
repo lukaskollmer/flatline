@@ -29,3 +29,6 @@ extension DefaultStringInterpolation {
         appendLiteral("\(shape.sides) sides")
     }
 }
+
+/// Only imported on its own, with `import struct ShapeExtras.Ruler`.
+public struct Ruler {}

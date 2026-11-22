@@ -15,6 +15,8 @@ public struct SourceUnit: Sendable {
     public let language: Language
     let storeIndex: Int
     let recordName: String
+    /// The build variants that compiled the file to this record.
+    public internal(set) var variants: Set<Int>
 }
 
 /// The units chosen from index stores.
@@ -52,7 +54,7 @@ public struct UnitSelector: Sendable {
     /// `SourceUnit.storeIndex` indexes into them flattened.
     public func select(from variants: [[IndexStore]], logger: Logger) throws -> UnitSelection {
         let root = Paths.canonical(projectRoot)
-        typealias Candidate = (unit: IndexUnit, store: Int, file: String)
+        typealias Candidate = (unit: IndexUnit, store: Int, file: String, variant: Int)
         var candidates: [String: Candidate] = [:]
         var otherCandidates: [String: Candidate] = [:]
         var classifications: [String: FileClass] = [:]
@@ -95,9 +97,9 @@ public struct UnitSelector: Sendable {
                 }
                 let key = "\(variant)\u{0}\(unit.moduleName)\u{0}\(file)"
                 if case .project = classification {
-                    keepNewest(&candidates, key, (unit, storeIndex, file))
+                    keepNewest(&candidates, key, (unit, storeIndex, file, variant))
                 } else {
-                    keepNewest(&otherCandidates, key, (unit, storeIndex, file))
+                    keepNewest(&otherCandidates, key, (unit, storeIndex, file, variant))
                 }
             }
         }
@@ -118,7 +120,7 @@ public struct UnitSelector: Sendable {
         }
 
         var heuristicTestModules: Set<String> = []
-        for (unit, _, _) in candidates.values where unit.dependencies.contains(where: {
+        for (unit, _, _, _) in candidates.values where unit.dependencies.contains(where: {
             $0.moduleName == "XCTest" || $0.moduleName == "Testing"
         }) {
             heuristicTestModules.insert(unit.moduleName)
@@ -126,20 +128,26 @@ public struct UnitSelector: Sendable {
         let testModules = testModules.union(heuristicTestModules)
 
         // Variants that compiled a file identically share its record; read it once.
-        var seenRecords: Set<String> = []
         func sourceUnits(_ candidates: some Sequence<Candidate>) -> [SourceUnit] {
             var units: [SourceUnit] = []
-            for (unit, storeIndex, file) in candidates {
+            var unitsByRecord: [String: Int] = [:]
+            for (unit, storeIndex, file, variant) in candidates {
                 guard let record = unit.dependencies.first(where: {
                     $0.kind == .record && Paths.canonical($0.filePath) == file
                 }) ?? unit.dependencies.first(where: { $0.kind == .record }) else { continue }
-                guard seenRecords.insert("\(unit.moduleName)\u{0}\(file)\u{0}\(record.name)").inserted else { continue }
+                let key = "\(unit.moduleName)\u{0}\(file)\u{0}\(record.name)"
+                if let index = unitsByRecord[key] {
+                    units[index].variants.insert(variant)
+                    continue
+                }
+                unitsByRecord[key] = units.count
                 units.append(SourceUnit(
                     file: file,
                     module: unit.moduleName,
                     language: unit.providerIdentifier == "swift" ? .swift : .clang,
                     storeIndex: storeIndex,
-                    recordName: record.name
+                    recordName: record.name,
+                    variants: [variant]
                 ))
             }
             return units.sorted { ($0.file, $0.module, $0.storeIndex) < ($1.file, $1.module, $1.storeIndex) }

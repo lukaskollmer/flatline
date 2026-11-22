@@ -187,17 +187,23 @@ These imports aren't reported:
 
 - `@_exported` imports, and imports in inactive `#if` branches.
 - Imports of a module that re-exports a module outside the project, e.g.
-  `@_exported import Foundation`, unless the file imports that module too:
-  its uses can't be seen.
+  `@_exported import Foundation`, unless the file imports that whole module
+  too: its uses can't be seen.
 - Imports that another file of the same module depends on. Once one file
   imports a module, Swift makes its extension members and conformances visible
   in every file of the module. If a file uses them without importing the
-  module, removing the import from the other files would break it.
+  module, removing the import from the other files would break it. Generated
+  files and files excluded with `index_exclude` count as such files too.
 - Imports of modules listed in `retain_unused_imported_modules`, and imports
   marked with `// flatline:ignore`.
 
 Imports of single declarations (`import struct Core.Theme`) are unused when the
-file uses neither the declaration nor its members.
+file uses neither the declaration nor its members, nor an extension member or
+conformance of the module: any import of a module provides those.
+
+With [build variants](#build-variants-traits-platforms-configurations), each
+variant is checked on its own: an import is reported only if it can be removed
+in every variant that compiles it.
 
 A file can rely on a conformance without naming the type, e.g. through a value
 whose type is inferred. If another file of the module imports the module that
@@ -303,8 +309,9 @@ flatline scan --write-baseline .flatline-baseline.json
 flatline scan --baseline .flatline-baseline.json --strict
 ```
 
-Baselines identify results by USR (unused imports by file name and module),
-so they survive code moving around.
+Baselines identify results by USR, so they survive code moving around. Unused
+imports have no USR; they're identified by their file's path relative to the
+project root.
 
 On GitHub Actions, `--format github-actions` annotates pull requests:
 
@@ -416,8 +423,8 @@ code and its marker to a fixture.
 - `Tests/Fixtures/SwiftPackage`: a package with a library, an executable,
   tests, a macOS-only target (SwiftUI, Objective-C), and modules that import
   each other (`Shapes`, `ShapeExtras`, `ShapeKit`, `Imports`, `ImportLeaks`).
-- `Tests/Fixtures/PackageTraits`: a package with code behind a trait, for
-  build variants.
+- `Tests/Fixtures/PackageTraits`: a package with code and an import behind a
+  trait, for build variants.
 - `Tests/Fixtures/XcodeProject`: a macOS app with tests and a local package.
   It's generated from `project.yml`; after editing that, run `xcodegen
   generate` in that directory.

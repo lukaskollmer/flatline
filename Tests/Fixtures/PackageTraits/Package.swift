@@ -13,6 +13,7 @@ let package = Package(
         .trait(name: "Fancy"),
     ],
     targets: [
-        .executableTarget(name: "Tool"),
+        .target(name: "Helpers"),
+        .executableTarget(name: "Tool", dependencies: ["Helpers"]),
     ]
 )

@@ -12,22 +12,28 @@ import IndexStore
 /// members and conformances of the imported module visible in all files of the
 /// module. So an import isn't reported when another file of the same module
 /// uses the imported module without importing it: removing the import would
-/// break that file.
+/// break that file. Generated and excluded files of the module count too.
+///
+/// Each build variant compiles its own set of imports and uses, so an import
+/// is reported only if it can be removed in every variant that compiles it.
 ///
 /// Only imports of the project's own modules are analyzed. For other modules
 /// (the SDK, dependencies), the index doesn't tell which declarations they hold.
 struct ImportAnalysis {
     private let builder: SwiftGraphBuilder
     private let configuration: Configuration
+    /// Parsed project and auxiliary files.
     private let syntax: [String: FileSyntaxInfo]
     private let files: [IndexedFile]
+    /// Generated or excluded files of the project's modules. Their uses
+    /// count, but their imports aren't reported.
+    private let auxiliaryFiles: [IndexedFile]
     /// Modules whose declarations are all known: Swift only, every file read and parsed.
     let analyzableModules: Set<String>
     /// Modules with a Swift file that couldn't be read or parsed, so their uses are unknown.
     private let modulesWithUnknownFiles: Set<String>
-    /// The modules of declarations in auxiliary files (generated or excluded), by USR.
+    /// The modules of declarations in auxiliary files, by USR.
     private let auxiliaryModules: [String: Set<String>]
-    private let auxiliaryFiles: [IndexedFile]
 
     init(
         builder: SwiftGraphBuilder,
@@ -45,7 +51,7 @@ struct ImportAnalysis {
         var swiftModules: Set<String> = []
         var incomplete: Set<String> = []
         var unknown: Set<String> = []
-        for (unit, file) in files {
+        for (unit, file) in files + auxiliaryFiles {
             if unit.language == .clang {
                 incomplete.insert(unit.module)
             } else if file == nil || syntax[unit.file] == nil {
@@ -53,9 +59,6 @@ struct ImportAnalysis {
             } else {
                 swiftModules.insert(unit.module)
             }
-        }
-        for (unit, file) in auxiliaryFiles where unit.language == .clang || file == nil {
-            incomplete.insert(unit.module)
         }
         analyzableModules = swiftModules.subtracting(incomplete).subtracting(unknown)
         modulesWithUnknownFiles = unknown
@@ -69,8 +72,13 @@ struct ImportAnalysis {
         self.auxiliaryModules = auxiliaryModules
     }
 
-    /// What one source file imports and uses, across all modules and build
-    /// variants it's compiled in.
+    /// One source file as compiled in one build variant.
+    private struct FileKey: Hashable {
+        let path: String
+        let variant: Int
+    }
+
+    /// What a file imports and uses, across the modules it's compiled into.
     private struct FileUses {
         var modules: Set<String> = []
         /// Module positions of the imports that were compiled.
@@ -80,97 +88,138 @@ struct ImportAnalysis {
         var qualifiedModules: Set<String> = []
         /// Declarations named by imports of single declarations, by module position.
         var scopedUSRs: [Position: Set<String>] = [:]
+
+        mutating func merge(_ other: FileUses) {
+            modules.formUnion(other.modules)
+            compiledImports.formUnion(other.compiledImports)
+            referencedUSRs.formUnion(other.referencedUSRs)
+            qualifiedModules.formUnion(other.qualifiedModules)
+            scopedUSRs.merge(other.scopedUSRs) { $0.union($1) }
+        }
+    }
+
+    /// The modules a file needs, other than its own.
+    private struct Needs {
+        /// Modules of the declarations it refers to, and modules that may
+        /// provide conformances it relies on.
+        var all: Set<String> = []
+        /// Modules of extension members and conformances it relies on. Any
+        /// import of such a module provides them, even of a single declaration.
+        var throughExtensions: Set<String> = []
     }
 
     func findings(filter: ReportFilter) -> [Finding] {
-        let retained = Set(configuration.retainUnusedImportedModules)
         let uses = collectUses()
         let conformances = conformanceModules()
 
-        // The modules each file needs: those of the declarations it refers
-        // to, and those that may provide conformances it relies on.
-        var needed: [String: Set<String>] = [:]
-        for (path, entry) in uses {
-            var modules = entry.qualifiedModules
+        var needs: [FileKey: Needs] = [:]
+        for (key, entry) in uses {
+            var result = Needs()
+            result.all = entry.qualifiedModules
             for usr in entry.referencedUSRs {
-                modules.formUnion(self.modules(of: usr) ?? [])
-                modules.formUnion(conformances[usr] ?? [])
+                let declarationModules = modules(of: usr) ?? []
+                result.all.formUnion(declarationModules)
+                if isDeclaredInExtension(usr) {
+                    result.throughExtensions.formUnion(declarationModules)
+                }
+                var conformingModules = conformances[usr] ?? []
                 for type in enclosingDeclarations(of: usr) {
                     for usr in builder.graph[type].usrs {
-                        modules.formUnion(conformances[usr] ?? [])
+                        conformingModules.formUnion(conformances[usr] ?? [])
                     }
                 }
+                result.all.formUnion(conformingModules)
+                result.throughExtensions.formUnion(conformingModules)
             }
-            needed[path] = modules.subtracting(entry.modules)
+            result.all.subtract(entry.modules)
+            result.throughExtensions.subtract(entry.modules)
+            needs[key] = result
         }
 
-        var exports: [String: Set<String>] = [:]
-        for (path, entry) in uses {
-            for declaration in compiledImports(of: path, uses: entry) where declaration.isExported {
+        // Re-exports, by variant and exporting module.
+        var exports: [Int: [String: Set<String>]] = [:]
+        for (key, entry) in uses {
+            for declaration in compiledImports(of: key.path, uses: entry) where declaration.isExported {
                 for module in entry.modules {
-                    exports[module, default: []].insert(declaration.module)
+                    exports[key.variant, default: [:]][module, default: []].insert(declaration.module)
                 }
             }
         }
-        var closures: [String: Set<String>] = [:]
-        /// The modules that importing `module` makes visible.
-        func visible(through module: String) -> Set<String> {
-            if let cached = closures[module] { return cached }
+        var closures: [Int: [String: Set<String>]] = [:]
+        /// The modules that importing `module` makes visible in `variant`.
+        func visible(through module: String, in variant: Int) -> Set<String> {
+            if let cached = closures[variant]?[module] { return cached }
             var result: Set<String> = [module]
             var queue = [module]
             while let current = queue.popLast() {
-                for exported in exports[current] ?? [] where result.insert(exported).inserted {
+                for exported in exports[variant]?[current] ?? [] where result.insert(exported).inserted {
                     queue.append(exported)
                 }
             }
-            closures[module] = result
+            closures[variant, default: [:]][module] = result
             return result
         }
+        func visible(through imports: [ImportSyntaxInfo], in variant: Int) -> Set<String> {
+            imports.reduce(into: Set<String>()) { $0.formUnion(visible(through: $1.module, in: variant)) }
+        }
 
-        // Modules that a file uses without importing them, by the module the
-        // file is in: imports of them elsewhere in that module are load-bearing.
-        var leaked: [String: Set<String>] = [:]
-        for (path, entry) in uses {
-            let visibleModules = compiledImports(of: path, uses: entry)
-                .reduce(into: Set<String>()) { $0.formUnion(visible(through: $1.module)) }
-            let missing = needed[path, default: []].subtracting(visibleModules)
+        // Modules that a file uses without importing them, by variant and by
+        // the module the file is in: imports of them elsewhere in that module
+        // are load-bearing.
+        var leaked: [Int: [String: Set<String>]] = [:]
+        for (key, entry) in uses {
+            let missing = needs[key, default: Needs()].all
+                .subtracting(visible(through: compiledImports(of: key.path, uses: entry), in: key.variant))
             for module in entry.modules {
-                leaked[module, default: []].formUnion(missing)
+                leaked[key.variant, default: [:]][module, default: []].formUnion(missing)
             }
         }
 
+        /// Whether `declaration` can be removed from the file in one variant.
+        func isRemovable(_ declaration: ImportSyntaxInfo, from key: FileKey) -> Bool {
+            let entry = uses[key, default: FileUses()]
+            let fileNeeds = needs[key, default: Needs()]
+            let visibleModules = visible(through: declaration.module, in: key.variant)
+            // Uses of a re-exported module that isn't analyzed can't be seen,
+            // unless another import of the whole module makes it visible too.
+            let otherImports = compiledImports(of: key.path, uses: entry).filter {
+                $0.module != declaration.module && $0.kind == nil
+            }
+            let otherModules = visible(through: otherImports, in: key.variant)
+            guard visibleModules.allSatisfy({ analyzableModules.contains($0) || otherModules.contains($0) }) else {
+                return false
+            }
+            let isUsed = declaration.kind == nil
+                ? !fileNeeds.all.isDisjoint(with: visibleModules)
+                : !fileNeeds.throughExtensions.isDisjoint(with: visibleModules)
+                    || usesScopedImport(entry.scopedUSRs[declaration.modulePosition] ?? [], entry.referencedUSRs)
+            return !isUsed && entry.modules.allSatisfy {
+                leaked[key.variant]?[$0, default: []].isDisjoint(with: visibleModules) ?? true
+            }
+        }
+
+        let retained = Set(configuration.retainUnusedImportedModules)
+        let auxiliaryPaths = Set(auxiliaryFiles.map(\.unit.file))
+        let keysByPath = Dictionary(grouping: uses.keys.filter { !auxiliaryPaths.contains($0.path) }, by: \.path)
         var findings: [Finding] = []
-        for (path, entry) in uses {
+        for (path, keys) in keysByPath {
+            let modules = keys.reduce(into: Set<String>()) { $0.formUnion(uses[$1]?.modules ?? []) }
             guard let fileSyntax = syntax[path], !fileSyntax.ignoresAll,
-                  entry.modules.isDisjoint(with: modulesWithUnknownFiles),
-                  filter.includes(file: path, modules: entry.modules)
+                  modules.isDisjoint(with: modulesWithUnknownFiles),
+                  filter.includes(file: path, modules: modules)
             else { continue }
-            let imports = compiledImports(of: path, uses: entry)
-            for declaration in imports {
-                let module = declaration.module
-                guard !declaration.isExported, !declaration.isIgnored, !retained.contains(module),
-                      analyzableModules.contains(module)
+            for declaration in fileSyntax.imports {
+                guard !declaration.isExported, !declaration.isIgnored, !retained.contains(declaration.module),
+                      analyzableModules.contains(declaration.module)
                 else { continue }
-                let visibleModules = visible(through: module)
-                // Uses of a re-exported module that isn't analyzed can't be
-                // seen, unless another import makes it visible too.
-                let otherModules = imports.filter { $0.module != module }
-                    .reduce(into: Set<String>()) { $0.formUnion(visible(through: $1.module)) }
-                guard visibleModules.allSatisfy({ analyzableModules.contains($0) || otherModules.contains($0) }) else {
-                    continue
-                }
-                let isUsed = declaration.kind == nil
-                    ? !needed[path, default: []].isDisjoint(with: visibleModules)
-                    : usesScopedImport(entry.scopedUSRs[declaration.modulePosition] ?? [], entry.referencedUSRs)
-                guard !isUsed,
-                      entry.modules.allSatisfy({ leaked[$0, default: []].isDisjoint(with: visibleModules) })
-                else { continue }
+                let compiledIn = keys.filter { uses[$0]?.compiledImports.contains(declaration.modulePosition) == true }
+                guard !compiledIn.isEmpty, compiledIn.allSatisfy({ isRemovable(declaration, from: $0) }) else { continue }
                 findings.append(Finding(
                     kind: .unusedImport,
                     declarationKind: .import,
                     name: declaration.name,
                     location: SourceLocation(file: path, line: declaration.range.start.line, column: declaration.range.start.column),
-                    modules: Array(entry.modules),
+                    modules: Array(modules),
                     usrs: []
                 ))
             }
@@ -180,41 +229,47 @@ struct ImportAnalysis {
 
     // MARK: - Collecting uses
 
-    private func collectUses() -> [String: FileUses] {
-        var uses: [String: FileUses] = [:]
-        for file in files where file.unit.language == .swift {
-            let path = file.unit.file
-            let imports = syntax[path]?.imports ?? []
-            let importsEnd = imports.map(\.range.end).max()
-            var entry = uses[path, default: FileUses()]
-            entry.modules.insert(file.unit.module)
-            for occurrence in file.occurrences {
-                let position = Position(line: occurrence.line, column: occurrence.column)
-                if let importsEnd, position < importsEnd,
-                   let declaration = imports.first(where: { $0.range.contains(position) }) {
-                    if occurrence.symbol.kind == .module {
-                        if position == declaration.modulePosition {
-                            entry.compiledImports.insert(position)
-                        }
-                    } else {
-                        entry.scopedUSRs[declaration.modulePosition, default: []].insert(occurrence.symbol.usr)
-                    }
-                    continue
-                }
-                if occurrence.symbol.kind == .module {
-                    entry.qualifiedModules.insert(occurrence.symbol.name)
-                    continue
-                }
-                // Not only references: an implicit protocol witness, for
-                // example, is an occurrence of a default implementation.
-                entry.referencedUSRs.insert(occurrence.symbol.usr)
-                for relation in occurrence.relations {
-                    entry.referencedUSRs.insert(relation.symbol.usr)
-                }
+    private func collectUses() -> [FileKey: FileUses] {
+        var uses: [FileKey: FileUses] = [:]
+        for file in files + auxiliaryFiles where file.unit.language == .swift {
+            let entry = fileUses(of: file)
+            for variant in file.unit.variants {
+                uses[FileKey(path: file.unit.file, variant: variant), default: FileUses()].merge(entry)
             }
-            uses[path] = entry
         }
         return uses
+    }
+
+    private func fileUses(of file: IndexedFile) -> FileUses {
+        let imports = syntax[file.unit.file]?.imports ?? []
+        let importsEnd = imports.map(\.range.end).max()
+        var entry = FileUses()
+        entry.modules.insert(file.unit.module)
+        for occurrence in file.occurrences {
+            let position = Position(line: occurrence.line, column: occurrence.column)
+            if let importsEnd, position < importsEnd,
+               let declaration = imports.first(where: { $0.range.contains(position) }) {
+                if occurrence.symbol.kind == .module {
+                    if position == declaration.modulePosition {
+                        entry.compiledImports.insert(position)
+                    }
+                } else {
+                    entry.scopedUSRs[declaration.modulePosition, default: []].insert(occurrence.symbol.usr)
+                }
+                continue
+            }
+            if occurrence.symbol.kind == .module {
+                entry.qualifiedModules.insert(occurrence.symbol.name)
+                continue
+            }
+            // Not only references: an implicit protocol witness, for
+            // example, is an occurrence of a default implementation.
+            entry.referencedUSRs.insert(occurrence.symbol.usr)
+            for relation in occurrence.relations {
+                entry.referencedUSRs.insert(relation.symbol.usr)
+            }
+        }
+        return entry
     }
 
     private func compiledImports(of path: String, uses: FileUses) -> [ImportSyntaxInfo] {
@@ -269,6 +324,18 @@ struct ImportAnalysis {
             current = builder.graph[id].parent
         }
         return result
+    }
+
+    /// Whether `usr` is declared in an extension, directly or nested. A
+    /// declaration of an auxiliary file might be.
+    private func isDeclaredInExtension(_ usr: String) -> Bool {
+        guard let id = builder.resolve(usr) else { return auxiliaryModules[usr] != nil }
+        var current = builder.graph[id].parent
+        while let parent = current {
+            if builder.graph[parent].kind == .extension { return true }
+            current = builder.graph[parent].parent
+        }
+        return false
     }
 
     /// Whether the file uses a declaration that `import struct Module.Name`

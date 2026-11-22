@@ -213,13 +213,13 @@ struct Scan: ParsableCommand {
 
         var findings = result.findings
         if let path = configuration.writeBaseline {
-            try Baseline(findings: findings).write(to: Paths.absolute(path, base: workingDirectory))
+            try Baseline(findings: findings, projectRoot: root).write(to: Paths.absolute(path, base: workingDirectory))
             logger.info("Wrote \(findings.count) results to the baseline \(path)")
         }
         if let path = configuration.baseline {
             let baseline = try Baseline.load(from: Paths.absolute(path, base: workingDirectory))
             let total = findings.count
-            findings = baseline.filter(findings)
+            findings = baseline.filter(findings, projectRoot: root)
             logger.debug("The baseline suppressed \(total - findings.count) results")
         }
 

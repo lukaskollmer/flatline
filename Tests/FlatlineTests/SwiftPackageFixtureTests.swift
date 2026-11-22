@@ -127,6 +127,12 @@ struct SwiftPackageFixtureTests {
         #expect(!findings.in("Unused.swift").isEmpty)
     }
 
+    @Test func excludedFilesStillDependOnImports() throws {
+        // Leaked.swift uses ShapeExtras without importing it, through the import in Imports.swift.
+        let findings = try fixture.findings { $0.indexExclude = ["Sources/ImportLeaks/Leaked.swift"] }
+        #expect(findings.in("ImportLeaks/Imports.swift").map(\.name) == ["Shapes"])
+    }
+
     @Test func explainsRetention() throws {
         let result = try fixture.analyze(explain: ["Square", "NeverConstructed", "testGreeter"])
         let text = result.explanations.joined(separator: "\n")
@@ -141,8 +147,8 @@ struct SwiftPackageFixtureTests {
         let findings = try fixture.findings()
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("flatline-baseline-\(UUID()).json").path
         defer { try? FileManager.default.removeItem(atPath: path) }
-        try Baseline(findings: Array(findings.dropFirst())).write(to: path)
-        let remaining = try Baseline.load(from: path).filter(findings)
+        try Baseline(findings: Array(findings.dropFirst()), projectRoot: root).write(to: path)
+        let remaining = try Baseline.load(from: path).filter(findings, projectRoot: root)
         #expect(remaining == [findings[0]])
     }
 

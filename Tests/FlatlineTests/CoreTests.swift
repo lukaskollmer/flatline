@@ -105,7 +105,7 @@ struct OutputTests {
     }
 
     @Test func baselineIgnoresLocations() {
-        let baseline = Baseline(findings: findings)
+        let baseline = Baseline(findings: findings, projectRoot: "/project")
         let moved = Finding(
             kind: .unused,
             declarationKind: .class,
@@ -114,7 +114,7 @@ struct OutputTests {
             modules: ["App"],
             usrs: ["s:3App3FooC"]
         )
-        #expect(baseline.filter([moved]).isEmpty)
+        #expect(baseline.filter([moved], projectRoot: "/project").isEmpty)
     }
 
     @Test func unusedImportsAreIdentifiedByFile() {
@@ -128,10 +128,12 @@ struct OutputTests {
                 usrs: []
             )
         }
-        let baseline = Baseline(findings: [unusedImport("/project/Sources/A.swift")])
-        #expect(baseline.filter([unusedImport("/elsewhere/Sources/A.swift", line: 4)]).isEmpty)
-        #expect(baseline.filter([unusedImport("/project/Sources/B.swift")]).count == 1)
-        #expect(unusedImport("/project/Sources/A.swift").message == "Import 'Core' is unused")
+        let baseline = Baseline(findings: [unusedImport("/project/iOS/Platform.swift")], projectRoot: "/project")
+        // Another checkout, and another line.
+        #expect(baseline.filter([unusedImport("/elsewhere/iOS/Platform.swift", line: 4)], projectRoot: "/elsewhere").isEmpty)
+        // A file with the same name in another directory, e.g. compiled in another variant.
+        #expect(baseline.filter([unusedImport("/project/macOS/Platform.swift")], projectRoot: "/project").count == 1)
+        #expect(unusedImport("/project/iOS/Platform.swift").message == "Import 'Core' is unused")
     }
 }
 

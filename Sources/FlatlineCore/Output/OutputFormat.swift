@@ -195,7 +195,7 @@ struct CodeClimateFormatter: OutputFormatter {
             Issue(
                 checkName: $0.kind.rawValue,
                 description: $0.message,
-                fingerprint: Self.fingerprint($0.identifier),
+                fingerprint: Self.fingerprint($0.identifier(projectRoot: context.projectRoot)),
                 location: .init(path: context.path($0.location), lines: .init(begin: $0.location.line))
             )
         }
