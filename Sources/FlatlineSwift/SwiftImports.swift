@@ -33,8 +33,9 @@ struct ImportAnalysis {
     let analyzableModules: Set<String>
     /// Modules with a Swift file that couldn't be read or parsed, so their uses are unknown.
     private let modulesWithUnknownFiles: Set<String>
-    /// The modules of declarations in auxiliary files, by USR.
-    private let auxiliaryModules: [String: Set<String>]
+    /// The module that declares each USR. Unlike the graph, which merges the
+    /// copies of a file compiled into several modules, a USR names one copy.
+    private let declarationModules: [String: Set<String>]
 
     init(
         builder: SwiftGraphBuilder,
@@ -64,13 +65,13 @@ struct ImportAnalysis {
         analyzableModules = swiftModules.subtracting(incomplete).subtracting(unknown)
         modulesWithUnknownFiles = unknown
 
-        var auxiliaryModules: [String: Set<String>] = [:]
-        for case let (unit, file?) in auxiliaryFiles {
+        var declarationModules: [String: Set<String>] = [:]
+        for case let (unit, file?) in files + auxiliaryFiles {
             for occurrence in file.occurrences where !occurrence.roles.isDisjoint(with: [.definition, .declaration]) {
-                auxiliaryModules[occurrence.symbol.usr, default: []].insert(unit.module)
+                declarationModules[occurrence.symbol.usr, default: []].insert(unit.module)
             }
         }
-        self.auxiliaryModules = auxiliaryModules
+        self.declarationModules = declarationModules
     }
 
     /// One source file as compiled into one module in one build variant.
@@ -117,13 +118,10 @@ struct ImportAnalysis {
             var result = Needs()
             result.all = entry.qualifiedModules
             for usr in entry.referencedUSRs {
-                // A declaration of a file that's also compiled into this module is local.
                 let declarationModules = modules(of: usr) ?? []
-                if !declarationModules.contains(key.module) {
-                    result.all.formUnion(declarationModules)
-                    if isDeclaredInExtension(usr) {
-                        result.throughExtensions.formUnion(declarationModules)
-                    }
+                result.all.formUnion(declarationModules)
+                if isDeclaredInExtension(usr) {
+                    result.throughExtensions.formUnion(declarationModules)
                 }
                 var conformingModules = conformances[usr] ?? []
                 for type in enclosingDeclarations(of: usr) {
@@ -297,10 +295,7 @@ struct ImportAnalysis {
     }
 
     private func modules(of usr: String) -> Set<String>? {
-        if let id = builder.resolve(usr) {
-            return builder.graph[id].modules
-        }
-        return auxiliaryModules[usr]
+        declarationModules[usr] ?? builder.resolve(usr).map { builder.graph[$0].modules }
     }
 
     /// Modules that declare conformances in extensions, by the USRs of the extended type.
@@ -347,9 +342,9 @@ struct ImportAnalysis {
     }
 
     /// Whether `usr` is declared in an extension, directly or nested. A
-    /// declaration of an auxiliary file might be.
+    /// declaration that isn't in the graph, e.g. of an auxiliary file, might be.
     private func isDeclaredInExtension(_ usr: String) -> Bool {
-        guard let id = builder.resolve(usr) else { return auxiliaryModules[usr] != nil }
+        guard let id = builder.resolve(usr) else { return declarationModules[usr] != nil }
         var current = builder.graph[id].parent
         while let parent = current {
             if builder.graph[parent].kind == .extension { return true }

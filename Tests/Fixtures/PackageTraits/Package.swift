@@ -14,6 +14,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "Helpers"),
-        .executableTarget(name: "Tool", dependencies: ["Helpers"]),
+        // Tool/Value.swift is a symlink to Values/Value.swift.
+        .target(name: "Values", swiftSettings: [.define("VALUES")]),
+        .executableTarget(name: "Tool", dependencies: ["Helpers", "Values"]),
     ]
 )
