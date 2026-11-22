@@ -25,6 +25,7 @@ enum SyntaxCollector {
             info.declarations[position] = declaration
         }
         info.previewRanges = visitor.previewRanges
+        info.imports = visitor.imports
         info.hasTopLevelCode = (path as NSString).lastPathComponent == "main.swift"
             || tree.statements.contains { if case .decl = $0.item { false } else { true } }
         info.ignoresAll = Self.commands(in: tree.leadingTrivia).contains(.ignoreAll)
@@ -74,6 +75,7 @@ private final class DeclarationVisitor: SyntaxVisitor {
     /// Extra positions under which a declaration is registered.
     var aliases: [(Position, DeclarationSyntaxInfo)] = []
     var previewRanges: [SourceRange] = []
+    var imports: [ImportSyntaxInfo] = []
 
     /// Nesting inside type and extension bodies.
     private var typeDepth = 0
@@ -187,6 +189,25 @@ private final class DeclarationVisitor: SyntaxVisitor {
               let callee = call.calledExpression.as(DeclReferenceExprSyntax.self)
         else { return false }
         return stubFunctions.contains(callee.baseName.text)
+    }
+
+    // MARK: Imports
+
+    override func visit(_ node: ImportDeclSyntax) -> SyntaxVisitorContinueKind {
+        let components = Array(node.path)
+        // `import Module.Submodule` imports a Clang submodule, which isn't analyzed.
+        guard let first = components.first, node.importKindSpecifier != nil || components.count == 1 else {
+            return .skipChildren
+        }
+        imports.append(ImportSyntaxInfo(
+            path: components.map { $0.name.text.trimmingCharacters(in: CharacterSet(charactersIn: "`")) },
+            modulePosition: position(of: first.name),
+            range: range(of: node),
+            kind: node.importKindSpecifier?.text,
+            attributes: Self.attributeNames(node.attributes),
+            commands: SyntaxCollector.commands(in: node.leadingTrivia)
+        ))
+        return .skipChildren
     }
 
     // MARK: Types

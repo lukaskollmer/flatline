@@ -1,5 +1,6 @@
 #if Fancy
-print(fancyGreeting())
+print(loud(fancyGreeting()))
 #else
-print(basicGreeting())
+print(loud(basicGreeting()))
 #endif
+print(useValue())

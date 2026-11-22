@@ -6,8 +6,8 @@ public struct Baseline: Codable, Sendable {
     public var version = 1
     public var findings: [String]
 
-    public init(findings: [Finding]) {
-        self.findings = Array(Set(findings.map(\.identifier))).sorted()
+    public init(findings: [Finding], projectRoot: String) {
+        self.findings = Array(Set(findings.map { $0.identifier(projectRoot: projectRoot) })).sorted()
     }
 
     public static func load(from path: String) throws -> Baseline {
@@ -20,8 +20,8 @@ public struct Baseline: Codable, Sendable {
         try encoder.encode(self).write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
-    public func filter(_ findings: [Finding]) -> [Finding] {
+    public func filter(_ findings: [Finding], projectRoot: String) -> [Finding] {
         let known = Set(self.findings)
-        return findings.filter { !known.contains($0.identifier) }
+        return findings.filter { !known.contains($0.identifier(projectRoot: projectRoot)) }
     }
 }

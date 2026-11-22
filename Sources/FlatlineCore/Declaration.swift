@@ -21,6 +21,8 @@ public enum DeclarationKind: String, Codable, Sendable, CaseIterable {
     case staticProperty
     case classProperty
     case macro
+    /// An `import` declaration; only used for `unusedImport` results.
+    case `import`
 
     public var displayName: String {
         switch self {
@@ -46,6 +48,7 @@ public enum DeclarationKind: String, Codable, Sendable, CaseIterable {
         case .staticProperty: "Static property"
         case .classProperty: "Class property"
         case .macro: "Macro"
+        case .import: "Import"
         }
     }
 

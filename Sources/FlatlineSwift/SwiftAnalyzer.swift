@@ -49,7 +49,8 @@ public struct SwiftAnalyzer: Sendable {
         selector.excludeTests = configuration.excludeTests
         selector.testModules = testModules
         selector.indexExclude = try configuration.indexExclude.map(Glob.init)
-        let units = try selector.select(from: variants, logger: logger)
+        let selection = try selector.select(from: variants, logger: logger)
+        let units = selection.units
         guard !units.isEmpty else {
             throw FlatlineError(
                 "the index store has no units for files in \(projectRoot). "
@@ -62,7 +63,7 @@ public struct SwiftAnalyzer: Sendable {
         logger.debug("Modules: \(Set(units.map(\.module)).sorted().joined(separator: ", "))")
 
         // Read index records and parse sources concurrently.
-        let files = units.concurrentMap { unit -> IndexedFile? in
+        func read(_ unit: SourceUnit) -> IndexedFile? {
             do {
                 return IndexedFile(unit: unit, occurrences: try stores[unit.storeIndex].occurrences(inRecord: unit.recordName))
             } catch {
@@ -70,10 +71,13 @@ public struct SwiftAnalyzer: Sendable {
                 return nil
             }
         }
+        let files = units.concurrentMap(read)
         statistics.unreadableRecords = files.count { $0 == nil }
+        let analyzesImports = !configuration.disableUnusedImportAnalysis
+        let auxiliaryFiles = analyzesImports ? selection.auxiliaryUnits.concurrentMap(read) : []
 
         let swiftFiles = Array(Set(units.filter { $0.language == .swift }.map(\.file))).sorted()
-        let parsed = swiftFiles.concurrentMap { path -> FileSyntaxInfo? in
+        func parse(_ path: String) -> FileSyntaxInfo? {
             do {
                 return try SyntaxCollector.collect(path: path)
             } catch {
@@ -81,6 +85,7 @@ public struct SwiftAnalyzer: Sendable {
                 return nil
             }
         }
+        let parsed = swiftFiles.concurrentMap(parse)
         statistics.unparseableFiles = parsed.count { $0 == nil }
         let syntax = Dictionary(uniqueKeysWithValues: parsed.compactMap { $0.map { ($0.path, $0) } })
 
@@ -105,7 +110,24 @@ public struct SwiftAnalyzer: Sendable {
             include: try configuration.reportInclude.map(Glob.init),
             exclude: try configuration.reportExclude.map(Glob.init)
         )
-        let findings = builder.findings(filter: filter)
+        var findings = builder.findings(filter: filter)
+        if analyzesImports {
+            // Generated and excluded files are parsed only for their imports.
+            let auxiliarySwiftFiles = Set(selection.auxiliaryUnits.filter { $0.language == .swift }.map(\.file))
+            let auxiliarySyntax = Array(auxiliarySwiftFiles).concurrentMap(parse).compactMap { $0 }
+            let imports = ImportAnalysis(
+                builder: builder,
+                configuration: configuration,
+                syntax: syntax.merging(auxiliarySyntax.map { ($0.path, $0) }) { first, _ in first },
+                files: Array(zip(units, files)),
+                auxiliaryFiles: Array(zip(selection.auxiliaryUnits, auxiliaryFiles))
+            )
+            let skipped = Set(units.map(\.module).filter { !$0.isEmpty }).subtracting(imports.analyzableModules)
+            if !skipped.isEmpty {
+                logger.debug("Imports of these modules aren't analyzed: \(skipped.sorted().joined(separator: ", "))")
+            }
+            findings = (findings + imports.findings(filter: filter)).sorted(by: Finding.isInReportOrder)
+        }
         let explanations = explain.flatMap { builder.explain($0, projectRoot: projectRoot) }
         return AnalysisResult(findings: findings, statistics: statistics, explanations: explanations)
     }

@@ -139,4 +139,31 @@ struct SyntaxCollectorTests {
         #expect(SyntaxCollector.collect(source: "func f() {}", path: "/x/main.swift").hasTopLevelCode)
         #expect(collect("#Preview { Text(\"\") }").previewRanges.count == 1)
     }
+
+    @Test func collectsImports() throws {
+        let info = collect("""
+        import Foundation
+        @testable import App
+        // flatline:ignore
+        @_exported public import Kit
+        import struct Shapes.Shape
+        import Darwin.C
+        #if canImport(UIKit)
+        import UIKit
+        #endif
+        """)
+        #expect(info.imports.map(\.name) == ["Foundation", "App", "Kit", "Shapes.Shape", "UIKit"])
+        let app = info.imports[1]
+        #expect(app.attributes == ["testable"])
+        #expect(app.modulePosition == Position(line: 2, column: 18))
+        #expect(app.range.start == Position(line: 2, column: 1))
+        let kit = info.imports[2]
+        #expect(kit.isExported)
+        #expect(kit.isIgnored)
+        let shape = info.imports[3]
+        #expect(shape.module == "Shapes")
+        #expect(shape.kind == "struct")
+        #expect(shape.modulePosition == Position(line: 5, column: 15))
+        #expect(info.imports[4].modulePosition == Position(line: 8, column: 8))
+    }
 }

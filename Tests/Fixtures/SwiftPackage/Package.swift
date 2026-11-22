@@ -9,6 +9,17 @@ var targets: [Target] = [
     .target(name: "Core"),
     .executableTarget(name: "App", dependencies: ["Core"]),
     .testTarget(name: "CoreTests", dependencies: ["Core"]),
+    // Unused imports: each file in Imports and ImportLeaks tests one case.
+    .target(name: "Shapes"),
+    .target(name: "ShapeExtras", dependencies: ["Shapes"]),
+    .target(name: "ShapeKit", dependencies: ["Shapes"]),
+    .target(name: "DateKit"),
+    .executableTarget(name: "Imports", dependencies: ["Shapes", "ShapeExtras", "ShapeKit", "DateKit"]),
+    .executableTarget(name: "ImportLeaks", dependencies: ["Shapes", "ShapeExtras"]),
+    // SharedB/main.swift is a symlink to SharedA/main.swift: one file in two
+    // modules, with a condition that only SharedA sets.
+    .executableTarget(name: "SharedA", dependencies: ["Shapes", "ShapeExtras"], swiftSettings: [.define("SHARED_A")]),
+    .executableTarget(name: "SharedB", dependencies: ["Shapes", "ShapeExtras"]),
 ]
 
 #if os(macOS)

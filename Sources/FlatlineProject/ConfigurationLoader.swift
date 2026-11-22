@@ -7,8 +7,8 @@ public enum ConfigurationLoader {
 
     /// Options of Periphery that have no equivalent and are safe to ignore.
     static let ignoredPeripheryKeys: Set<String> = [
-        "disable_update_check", "color", "skip_schemes_validation", "retain_unused_imported_modules",
-        "disable_unused_import_analysis", "superfluous_ignore_comments", "no_superfluous_ignore_comments",
+        "disable_update_check", "color", "skip_schemes_validation",
+        "superfluous_ignore_comments", "no_superfluous_ignore_comments",
         "json_package_manifest_path", "bazel", "bazel_filter", "generic_project_config", "exclude_targets_regex",
     ]
 

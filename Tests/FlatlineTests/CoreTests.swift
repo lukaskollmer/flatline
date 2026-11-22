@@ -105,7 +105,7 @@ struct OutputTests {
     }
 
     @Test func baselineIgnoresLocations() {
-        let baseline = Baseline(findings: findings)
+        let baseline = Baseline(findings: findings, projectRoot: "/project")
         let moved = Finding(
             kind: .unused,
             declarationKind: .class,
@@ -114,7 +114,26 @@ struct OutputTests {
             modules: ["App"],
             usrs: ["s:3App3FooC"]
         )
-        #expect(baseline.filter([moved]).isEmpty)
+        #expect(baseline.filter([moved], projectRoot: "/project").isEmpty)
+    }
+
+    @Test func unusedImportsAreIdentifiedByFile() {
+        func unusedImport(_ file: String, line: Int = 1) -> Finding {
+            Finding(
+                kind: .unusedImport,
+                declarationKind: .import,
+                name: "Core",
+                location: SourceLocation(file: file, line: line, column: 1),
+                modules: ["App"],
+                usrs: []
+            )
+        }
+        let baseline = Baseline(findings: [unusedImport("/project/iOS/Platform.swift")], projectRoot: "/project")
+        // Another checkout, and another line.
+        #expect(baseline.filter([unusedImport("/elsewhere/iOS/Platform.swift", line: 4)], projectRoot: "/elsewhere").isEmpty)
+        // A file with the same name in another directory, e.g. compiled in another variant.
+        #expect(baseline.filter([unusedImport("/project/macOS/Platform.swift")], projectRoot: "/project").count == 1)
+        #expect(unusedImport("/project/iOS/Platform.swift").message == "Import 'Core' is unused")
     }
 }
 
@@ -148,6 +167,8 @@ struct ConfigurationTests {
         build_arguments: [-destination, "generic/platform=iOS Simulator"]
         format: github-actions
         disable_update_check: true
+        disable_unused_import_analysis: true
+        retain_unused_imported_modules: Legacy
         """)
         #expect(configuration.project == "App.xcworkspace")
         #expect(configuration.schemes == ["App", "Widget"])
@@ -156,6 +177,8 @@ struct ConfigurationTests {
         #expect(configuration.reportExclude == ["**/Generated/**"])
         #expect(configuration.buildArguments == ["-destination", "generic/platform=iOS Simulator"])
         #expect(configuration.format == .githubActions)
+        #expect(configuration.disableUnusedImportAnalysis)
+        #expect(configuration.retainUnusedImportedModules == ["Legacy"])
     }
 
     @Test func readsBuildVariants() throws {

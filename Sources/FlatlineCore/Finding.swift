@@ -10,15 +10,18 @@ public struct Finding: Codable, Sendable, Hashable {
         case unusedParameter
         /// A `public` or `open` declaration that is only used inside its own module.
         case redundantPublicAccessibility
+        /// An `import` of a module that the file doesn't use.
+        case unusedImport
     }
 
     public let kind: Kind
     public let declarationKind: DeclarationKind
-    /// The declaration name, or the parameter name for `unusedParameter`.
+    /// The declaration name, the parameter name for `unusedParameter`, or the
+    /// imported module (or `Module.Declaration`) for `unusedImport`.
     public let name: String
     public let location: SourceLocation
     public let modules: [String]
-    /// USRs of the declaration; for `unusedParameter`, of the function.
+    /// USRs of the declaration; for `unusedParameter`, of the function; none for `unusedImport`.
     public let usrs: [String]
     /// For `redundantPublicAccessibility`: the accessibility written in source.
     public let accessibility: Accessibility?
@@ -54,11 +57,17 @@ public struct Finding: Codable, Sendable, Hashable {
         case .redundantPublicAccessibility:
             "\(declarationKind.displayName) '\(name)' is declared \(accessibility?.rawValue ?? "public"), "
                 + "but not used outside of \(modules.count == 1 ? "module '\(modules[0])'" : "its modules")"
+        case .unusedImport:
+            "Import '\(name)' is unused"
         }
     }
 
     /// Identifies the finding across runs; stable when code moves around.
-    public var identifier: String {
-        "\(kind.rawValue)|\(usrs.joined(separator: ","))|\(name)"
+    public func identifier(projectRoot: String) -> String {
+        if kind == .unusedImport {
+            // Imports have no USR; they're identified by their file.
+            return "\(kind.rawValue)|\(Paths.relative(location.file, to: projectRoot))|\(name)"
+        }
+        return "\(kind.rawValue)|\(usrs.joined(separator: ","))|\(name)"
     }
 }
