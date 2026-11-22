@@ -12,7 +12,8 @@ struct ReferenceStats {
     var writes = 0
     /// References that neither read nor write, e.g. memberwise initializer labels.
     var other = 0
-    var referencingModules: Set<String> = []
+    /// Referenced from a module that doesn't declare the copy it uses.
+    var isReferencedFromAnotherModule = false
     /// A function referenced without being called, e.g. passed as a closure.
     var usedAsValue = false
 }
@@ -59,6 +60,9 @@ final class SwiftGraphBuilder {
     /// Declarations excluded by comment commands.
     var ignored: Set<Declaration.ID> = []
 
+    /// The modules that declare each USR. The graph merges the copies of a file
+    /// compiled into several modules, but a USR names one module's copy.
+    private var declaringModules: [String: Set<String>] = [:]
     private var idsByLocation: [SourceLocation: Declaration.ID] = [:]
     private var idsByLocationKey: [LocationKey: Declaration.ID] = [:]
     private var pendingParents: [(child: Declaration.ID, parent: String)] = []
@@ -103,6 +107,7 @@ final class SwiftGraphBuilder {
                 continue
             }
             guard !occurrence.roles.isDisjoint(with: [.definition, .declaration]) else { continue }
+            declaringModules[occurrence.symbol.usr, default: []].insert(file.unit.module)
 
             switch occurrence.symbol.classification {
             case .ignored:
@@ -312,7 +317,12 @@ final class SwiftGraphBuilder {
     private func recordStats(of occurrence: SymbolOccurrence, target: Declaration.ID, module: String) {
         let roles = occurrence.roles
         var entry = stats[target, default: ReferenceStats()]
-        entry.referencingModules.insert(module)
+        // Objective-C references use USRs without a module, so fall back to
+        // every module that compiles the declaration.
+        let declaring = declaringModules[occurrence.symbol.usr] ?? graph[target].modules
+        if !declaring.contains(module) {
+            entry.isReferencedFromAnotherModule = true
+        }
         // Implicit accessor calls duplicate the property reference next to them.
         if case .accessor = occurrence.symbol.classification {
             stats[target] = entry

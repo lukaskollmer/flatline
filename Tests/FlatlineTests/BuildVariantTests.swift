@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct BuildVariantTests {
     @Test func aSingleBuildMissesCodeBehindOtherTraits() throws {
-        let findings = try Fixtures.packageTraitsDefault.get().findings()
+        let findings = try Fixtures.packageTraitsDefault.get().findings().filter { $0.kind == .unused }
         // Only used behind the Fancy trait, so the default build can't see the uses.
         #expect(Set(findings.map(\.name)) == ["fancyGreeting()", "decorate(_:)", "unusedInEveryVariant()"])
     }
