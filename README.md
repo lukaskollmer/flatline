@@ -187,8 +187,9 @@ These imports aren't reported:
 
 - `@_exported` imports, and imports in inactive `#if` branches.
 - Imports of a module that re-exports a module outside the project, e.g.
-  `@_exported import Foundation`, unless the file imports that whole module
-  too: its uses can't be seen.
+  `@_exported import Foundation`, unless the file's other imports make that
+  whole module visible too: its uses can't be seen. Imports and re-exports of
+  single declarations, like `import struct Foundation.Date`, don't count.
 - Imports that another file of the same module depends on. Once one file
   imports a module, Swift makes its extension members and conformances visible
   in every file of the module. If a file uses them without importing the
@@ -201,9 +202,9 @@ Imports of single declarations (`import struct Core.Theme`) are unused when the
 file uses neither the declaration nor its members, nor an extension member or
 conformance of the module: any import of a module provides those.
 
-With [build variants](#build-variants-traits-platforms-configurations), each
-variant is checked on its own: an import is reported only if it can be removed
-in every variant that compiles it.
+Each compilation of a file is checked on its own: an import is reported only if
+it can be removed in every module the file is compiled into, and in every
+[build variant](#build-variants-traits-platforms-configurations).
 
 A file can rely on a conformance without naming the type, e.g. through a value
 whose type is inferred. If another file of the module imports the module that

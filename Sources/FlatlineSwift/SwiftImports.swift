@@ -14,8 +14,9 @@ import IndexStore
 /// uses the imported module without importing it: removing the import would
 /// break that file. Generated and excluded files of the module count too.
 ///
-/// Each build variant compiles its own set of imports and uses, so an import
-/// is reported only if it can be removed in every variant that compiles it.
+/// Each build variant, and each module a file is compiled into, has its own
+/// imports and uses, so an import is reported only if it can be removed in
+/// every variant and module that compiles it.
 ///
 /// Only imports of the project's own modules are analyzed. For other modules
 /// (the SDK, dependencies), the index doesn't tell which declarations they hold.
@@ -72,15 +73,15 @@ struct ImportAnalysis {
         self.auxiliaryModules = auxiliaryModules
     }
 
-    /// One source file as compiled in one build variant.
+    /// One source file as compiled into one module in one build variant.
     private struct FileKey: Hashable {
         let path: String
+        let module: String
         let variant: Int
     }
 
-    /// What a file imports and uses, across the modules it's compiled into.
+    /// What a file imports and uses in one compilation.
     private struct FileUses {
-        var modules: Set<String> = []
         /// Module positions of the imports that were compiled.
         var compiledImports: Set<Position> = []
         var referencedUSRs: Set<String> = []
@@ -90,7 +91,6 @@ struct ImportAnalysis {
         var scopedUSRs: [Position: Set<String>] = [:]
 
         mutating func merge(_ other: FileUses) {
-            modules.formUnion(other.modules)
             compiledImports.formUnion(other.compiledImports)
             referencedUSRs.formUnion(other.referencedUSRs)
             qualifiedModules.formUnion(other.qualifiedModules)
@@ -117,10 +117,13 @@ struct ImportAnalysis {
             var result = Needs()
             result.all = entry.qualifiedModules
             for usr in entry.referencedUSRs {
+                // A declaration of a file that's also compiled into this module is local.
                 let declarationModules = modules(of: usr) ?? []
-                result.all.formUnion(declarationModules)
-                if isDeclaredInExtension(usr) {
-                    result.throughExtensions.formUnion(declarationModules)
+                if !declarationModules.contains(key.module) {
+                    result.all.formUnion(declarationModules)
+                    if isDeclaredInExtension(usr) {
+                        result.throughExtensions.formUnion(declarationModules)
+                    }
                 }
                 var conformingModules = conformances[usr] ?? []
                 for type in enclosingDeclarations(of: usr) {
@@ -131,61 +134,80 @@ struct ImportAnalysis {
                 result.all.formUnion(conformingModules)
                 result.throughExtensions.formUnion(conformingModules)
             }
-            result.all.subtract(entry.modules)
-            result.throughExtensions.subtract(entry.modules)
+            result.all.remove(key.module)
+            result.throughExtensions.remove(key.module)
             needs[key] = result
         }
 
-        // Re-exports, by variant and exporting module.
-        var exports: [Int: [String: Set<String>]] = [:]
+        // Re-exports, by variant and exporting module. A re-export of a single
+        // declaration (`@_exported import struct Module.Name`) makes the
+        // module's extension members visible, but not the whole module.
+        struct ExportKey: Hashable {
+            let variant: Int
+            let module: String
+        }
+        var exports: [ExportKey: (wholeModules: Set<String>, declarations: Set<String>)] = [:]
         for (key, entry) in uses {
             for declaration in compiledImports(of: key.path, uses: entry) where declaration.isExported {
-                for module in entry.modules {
-                    exports[key.variant, default: [:]][module, default: []].insert(declaration.module)
+                let exportKey = ExportKey(variant: key.variant, module: key.module)
+                if declaration.kind == nil {
+                    exports[exportKey, default: ([], [])].wholeModules.insert(declaration.module)
+                } else {
+                    exports[exportKey, default: ([], [])].declarations.insert(declaration.module)
                 }
             }
         }
-        var closures: [Int: [String: Set<String>]] = [:]
-        /// The modules that importing `module` makes visible in `variant`.
-        func visible(through module: String, in variant: Int) -> Set<String> {
-            if let cached = closures[variant]?[module] { return cached }
-            var result: Set<String> = [module]
-            var queue = [module]
-            while let current = queue.popLast() {
-                for exported in exports[variant]?[current] ?? [] where result.insert(exported).inserted {
-                    queue.append(exported)
-                }
+        var closures: [ExportKey: (wholeModules: Set<String>, any: Set<String>)] = [:]
+        /// The modules that importing `module` makes visible in `variant`:
+        /// either the modules it makes visible as a whole, or every module it
+        /// makes any declaration of visible.
+        func visible(through module: String, in variant: Int, wholeModulesOnly: Bool) -> Set<String> {
+            let key = ExportKey(variant: variant, module: module)
+            if let cached = closures[key] {
+                return wholeModulesOnly ? cached.wholeModules : cached.any
             }
-            closures[variant, default: [:]][module] = result
-            return result
+            func closure(_ edges: (ExportKey) -> Set<String>) -> Set<String> {
+                var result: Set<String> = [module]
+                var queue = [module]
+                while let current = queue.popLast() {
+                    for exported in edges(ExportKey(variant: variant, module: current)) where result.insert(exported).inserted {
+                        queue.append(exported)
+                    }
+                }
+                return result
+            }
+            let wholeModules = closure { exports[$0]?.wholeModules ?? [] }
+            let any = closure { exports[$0].map { $0.wholeModules.union($0.declarations) } ?? [] }
+            closures[key] = (wholeModules, any)
+            return wholeModulesOnly ? wholeModules : any
         }
-        func visible(through imports: [ImportSyntaxInfo], in variant: Int) -> Set<String> {
-            imports.reduce(into: Set<String>()) { $0.formUnion(visible(through: $1.module, in: variant)) }
+        func visible(through imports: [ImportSyntaxInfo], in variant: Int, wholeModulesOnly: Bool) -> Set<String> {
+            imports.reduce(into: Set<String>()) {
+                $0.formUnion(visible(through: $1.module, in: variant, wholeModulesOnly: wholeModulesOnly))
+            }
         }
 
         // Modules that a file uses without importing them, by variant and by
         // the module the file is in: imports of them elsewhere in that module
         // are load-bearing.
-        var leaked: [Int: [String: Set<String>]] = [:]
+        var leaked: [ExportKey: Set<String>] = [:]
         for (key, entry) in uses {
-            let missing = needs[key, default: Needs()].all
-                .subtracting(visible(through: compiledImports(of: key.path, uses: entry), in: key.variant))
-            for module in entry.modules {
-                leaked[key.variant, default: [:]][module, default: []].formUnion(missing)
-            }
+            let imported = visible(through: compiledImports(of: key.path, uses: entry), in: key.variant, wholeModulesOnly: false)
+            let missing = needs[key, default: Needs()].all.subtracting(imported)
+            leaked[ExportKey(variant: key.variant, module: key.module), default: []].formUnion(missing)
         }
 
         /// Whether `declaration` can be removed from the file in one variant.
         func isRemovable(_ declaration: ImportSyntaxInfo, from key: FileKey) -> Bool {
             let entry = uses[key, default: FileUses()]
             let fileNeeds = needs[key, default: Needs()]
-            let visibleModules = visible(through: declaration.module, in: key.variant)
+            let visibleModules = visible(through: declaration.module, in: key.variant, wholeModulesOnly: false)
             // Uses of a re-exported module that isn't analyzed can't be seen,
-            // unless another import of the whole module makes it visible too.
+            // unless other imports make the whole module visible too.
             let otherImports = compiledImports(of: key.path, uses: entry).filter {
                 $0.module != declaration.module && $0.kind == nil
             }
-            let otherModules = visible(through: otherImports, in: key.variant)
+            let otherModules = visible(through: otherImports, in: key.variant, wholeModulesOnly: true)
             guard visibleModules.allSatisfy({ analyzableModules.contains($0) || otherModules.contains($0) }) else {
                 return false
             }
@@ -193,9 +215,8 @@ struct ImportAnalysis {
                 ? !fileNeeds.all.isDisjoint(with: visibleModules)
                 : !fileNeeds.throughExtensions.isDisjoint(with: visibleModules)
                     || usesScopedImport(entry.scopedUSRs[declaration.modulePosition] ?? [], entry.referencedUSRs)
-            return !isUsed && entry.modules.allSatisfy {
-                leaked[key.variant]?[$0, default: []].isDisjoint(with: visibleModules) ?? true
-            }
+            let leakedModules = leaked[ExportKey(variant: key.variant, module: key.module), default: []]
+            return !isUsed && leakedModules.isDisjoint(with: visibleModules)
         }
 
         let retained = Set(configuration.retainUnusedImportedModules)
@@ -203,7 +224,7 @@ struct ImportAnalysis {
         let keysByPath = Dictionary(grouping: uses.keys.filter { !auxiliaryPaths.contains($0.path) }, by: \.path)
         var findings: [Finding] = []
         for (path, keys) in keysByPath {
-            let modules = keys.reduce(into: Set<String>()) { $0.formUnion(uses[$1]?.modules ?? []) }
+            let modules = Set(keys.map(\.module))
             guard let fileSyntax = syntax[path], !fileSyntax.ignoresAll,
                   modules.isDisjoint(with: modulesWithUnknownFiles),
                   filter.includes(file: path, modules: modules)
@@ -234,7 +255,7 @@ struct ImportAnalysis {
         for file in files + auxiliaryFiles where file.unit.language == .swift {
             let entry = fileUses(of: file)
             for variant in file.unit.variants {
-                uses[FileKey(path: file.unit.file, variant: variant), default: FileUses()].merge(entry)
+                uses[FileKey(path: file.unit.file, module: file.unit.module, variant: variant), default: FileUses()].merge(entry)
             }
         }
         return uses
@@ -244,7 +265,6 @@ struct ImportAnalysis {
         let imports = syntax[file.unit.file]?.imports ?? []
         let importsEnd = imports.map(\.range.end).max()
         var entry = FileUses()
-        entry.modules.insert(file.unit.module)
         for occurrence in file.occurrences {
             let position = Position(line: occurrence.line, column: occurrence.column)
             if let importsEnd, position < importsEnd,
