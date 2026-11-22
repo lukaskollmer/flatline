@@ -197,8 +197,7 @@ extension SwiftGraphBuilder {
             var visited: Set<Declaration.ID> = []
             while let current = stack.popLast(), !requiresPublic {
                 guard visited.insert(current).inserted else { continue }
-                let modules = graph[current].modules
-                if let referencing = stats[current]?.referencingModules, !referencing.isSubset(of: modules) {
+                if stats[current]?.isReferencedFromAnotherModule == true {
                     requiresPublic = true
                 }
                 // Public API that mentions this declaration needs it to be public too.

@@ -121,8 +121,11 @@ struct Expectation: Hashable, CustomStringConvertible {
             if relative.hasPrefix(".build") || skipped.contains(where: { relative.hasPrefix($0) }) {
                 continue
             }
+            let path = root + "/" + relative
+            // Results in a symlinked file are at its target, which has the same markers.
             guard relative.hasSuffix(".swift"), relative != "Package.swift",
-                  let text = try? String(contentsOfFile: root + "/" + relative, encoding: .utf8)
+                  (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) == nil,
+                  let text = try? String(contentsOfFile: path, encoding: .utf8)
             else { continue }
             for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 guard let marker = line.range(of: "// expect: ") else { continue }

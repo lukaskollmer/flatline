@@ -4,3 +4,4 @@ print(loud(fancyGreeting()))
 print(loud(basicGreeting()))
 #endif
 print(useValue())
+print(ownValue())
